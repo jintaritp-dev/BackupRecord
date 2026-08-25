@@ -206,17 +206,22 @@ cd /opt/backup-dashboard && npm install --omit=dev
 ```
 DATABASE_URL=postgres://backup_dashboard_ro:รหัสที่ตั้ง@localhost:5432/backup_log
 DATABASE_URL_WRITE=postgres://backup_dashboard_rw:รหัสของ_rw@localhost:5432/backup_log
-WRITE_PASSWORD=รหัสที่ทีมใช้กดบันทึก
 HOST=0.0.0.0
 PORT=8790
 ```
 
 - `localhost` ใช้ได้เพราะหน้าเว็บรันบนเครื่องเดียวกับ Postgres — ไม่ต้องเปิดพอร์ต 5432 ออกนอกเครื่องเลย
 - `HOST=0.0.0.0` คือสิ่งที่ทำให้เครื่องอื่นใน LAN เปิดได้ ถ้าใส่ `127.0.0.1` จะเปิดได้แค่บนเซิร์ฟเวอร์เอง
-- `DATABASE_URL_WRITE` กับ `WRITE_PASSWORD` เป็นของหน้ากรอกข้อมูล `/add`
-  **ขาดค่าใดค่าหนึ่งหน้านั้นจะปิดทั้งหมด** ถ้ายังไม่อยากเปิดก็เว้นว่างไว้ dashboard ยังทำงานปกติ
-- `WRITE_PASSWORD` วิ่งเป็น plain text เพราะยังไม่มี HTTPS — ตั้งให้ยาว
-  และอย่าใช้รหัสเดียวกับอย่างอื่นในบริษัท
+- `DATABASE_URL_WRITE` เป็นสวิตช์เปิดหน้ากรอกข้อมูล `/add`
+  ไม่ตั้งก็ได้ dashboard ยังทำงานปกติ แค่ไม่มีหน้ากรอก
+- **ยังไม่มีรหัสกันหน้า `/add`** ใครเปิด URL ได้ก็เพิ่มรายการได้ ถ้าต้องการให้ต้องกรอกรหัสก่อนบันทึก
+  ให้เติมบรรทัดนี้ด้วย (ผิดครบ 10 ครั้งจะล็อก IP นั้น 5 นาที)
+
+  ```
+  WRITE_PASSWORD=รหัสที่ทีมใช้กดบันทึก
+  ```
+
+  รหัสวิ่งเป็น plain text เพราะยังไม่มี HTTPS — ถ้าจะตั้ง ให้ยาวและอย่าใช้ซ้ำกับอย่างอื่นในบริษัท
 
 Linux — กันไม่ให้คนอื่นบนเครื่องอ่านรหัสในไฟล์นี้:
 
@@ -238,14 +243,15 @@ node server.mjs
 curl http://localhost:8790/healthz
 ```
 
-ต้องได้ `{"ok":true,"db":"up","writes":"on"}`
+ต้องได้ `{"ok":true,"db":"up","writes":"on (no password)"}`
 
 | ผลที่ได้ | ความหมาย |
 |---|---|
 | `"db":"demo"` | ยังอ่าน `.env` ไม่เจอ หรือ `DATABASE_URL` ยังเป็นค่าตัวอย่าง |
 | `"db":"down"` | รหัสหรือชื่อฐานข้อมูลผิด — ดูรายละเอียดใน `detail` |
-| `"writes":"off (no_password)"` | ยังไม่ได้ตั้ง `WRITE_PASSWORD` — หน้า `/add` จะปิด |
-| `"writes":"off (no_write_database_url)"` | ตั้งรหัสแล้วแต่ขาด `DATABASE_URL_WRITE` |
+| `"writes":"off (no_write_database_url)"` | ยังไม่ได้ตั้ง `DATABASE_URL_WRITE` — หน้า `/add` ปิดอยู่ |
+| `"writes":"on (no password)"` | หน้า `/add` เปิดและไม่ต้องกรอกรหัส |
+| `"writes":"on"` | หน้า `/add` เปิดและต้องกรอกรหัส |
 
 กด `Ctrl+C` เพื่อหยุด แล้วไปตั้งเป็นเซอร์วิส
 
@@ -475,9 +481,9 @@ services:
 - [ ] `psql -d backup_log -c "select count(*) from backup_records"` ทำงานได้
 - [ ] role `backup_dashboard_ro` อ่านได้ แต่ `delete` ต้อง error
 - [ ] role `backup_dashboard_rw` `insert` ได้ แต่ `update` กับ `delete` ต้อง error (ข้อ 2.6)
-- [ ] `curl localhost:8790/healthz` ได้ `{"ok":true,"db":"up","writes":"on"}`
+- [ ] `curl localhost:8790/healthz` ได้ `"db":"up"` และ `"writes"` ตรงกับที่ตั้งใจ
 - [ ] เปิด `/add` กรอกทดสอบหนึ่งรายการ แล้วรายการนั้นโผล่ในหน้า dashboard
-- [ ] กรอกรหัสผิดแล้วขึ้นข้อความว่ารหัสไม่ถูกต้อง ไม่ใช่บันทึกผ่าน
+- [ ] ตัดสินใจแล้วว่าจะตั้ง `WRITE_PASSWORD` หรือไม่ — ถ้าไม่ตั้ง ใครใน LAN ก็เพิ่มรายการได้
 - [ ] เซอร์วิสรันเอง — ลอง reboot เครื่องแล้วหน้าเว็บยังขึ้น
 - [ ] เครื่องอื่นใน LAN เปิด `http://<ip>:8790` ได้
 - [ ] พอร์ต 8790 **ไม่ได้** ถูก forward ออกอินเทอร์เน็ต

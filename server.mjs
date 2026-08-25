@@ -39,13 +39,13 @@ const HOST = env.HOST?.trim() || '127.0.0.1';
 const PORT = Number(env.PORT ?? 8790);
 const DEMO = !DATABASE_URL || DATABASE_URL.includes('ชื่อฐานข้อมูล');
 
-// ไม่ตั้งรหัส = ปิดการเขียนทั้งหมด ค่าเริ่มต้นต้องปลอดภัย คนที่ git pull มาแล้วไม่ได้อ่านอะไร
-// จะไม่ได้ endpoint ที่ใครก็เขียนได้มาโดยไม่รู้ตัว
-const WRITE_DISABLED_REASON =
-  !WRITE_PASSWORD ? 'no_password'
-  : !DEMO && !DATABASE_URL_WRITE ? 'no_write_database_url'
-  : null;
+// สวิตช์เปิดการเขียนคือ DATABASE_URL_WRITE — ต้องตั้งใจตั้งบนเซิร์ฟเวอร์เท่านั้นจึงเปิด
+const WRITE_DISABLED_REASON = !DEMO && !DATABASE_URL_WRITE ? 'no_write_database_url' : null;
 const WRITES_ENABLED = WRITE_DISABLED_REASON === null;
+
+// รหัสผ่านเป็นตัวเลือก ไม่ตั้งก็กรอกข้อมูลได้เลยโดยไม่ต้องใส่รหัส
+// เปิดใช้ทีหลังได้ด้วยการเติมค่าเดียวใน .env ไม่ต้องแก้โค้ด
+const PASSWORD_REQUIRED = Boolean(WRITE_PASSWORD);
 
 // --- คิวรี ------------------------------------------------------------------
 // ทุกคิวรีเป็น string คงที่ ไม่มีส่วนไหนประกอบจาก input ของผู้ใช้
@@ -250,7 +250,7 @@ async function insertRestoreTest(body) {
   return rows[0];
 }
 
-// --- รหัสผ่านสำหรับเขียน ------------------------------------------------------
+// --- รหัสผ่านสำหรับเขียน (ใช้เมื่อตั้ง WRITE_PASSWORD ไว้) --------------------------
 // hash ทั้งสองฝั่งก่อนเทียบ เพื่อให้ buffer ยาวเท่ากันเสมอ — timingSafeEqual โยน error
 // ถ้าความยาวไม่เท่ากัน และการเทียบความยาวตรงๆ ก็เปิดเผยความยาวรหัสจริงออกไป
 const sha256 = (value) => createHash('sha256').update(String(value ?? ''), 'utf8').digest();
@@ -346,14 +346,16 @@ async function handleWrite(req, res, insert) {
 
   if (!WRITES_ENABLED) return reject(403, { error: 'writes_disabled', reason: WRITE_DISABLED_REASON });
 
-  const ip = clientIp(req);
-  if (isLockedOut(ip)) return reject(429, { error: 'too_many_attempts' });
+  if (PASSWORD_REQUIRED) {
+    const ip = clientIp(req);
+    if (isLockedOut(ip)) return reject(429, { error: 'too_many_attempts' });
 
-  if (!passwordMatches(req.headers['x-write-password'])) {
-    noteFailure(ip);
-    return reject(401, { error: 'bad_password' });
+    if (!passwordMatches(req.headers['x-write-password'])) {
+      noteFailure(ip);
+      return reject(401, { error: 'bad_password' });
+    }
+    failures.delete(ip);   // รหัสถูกแล้ว ล้างตัวนับของ IP นี้
   }
-  failures.delete(ip);   // รหัสถูกแล้ว ล้างตัวนับของ IP นี้
 
   try {
     const saved = await insert(await readJsonBody(req));
@@ -394,14 +396,16 @@ const server = createServer(async (req, res) => {
   if (path === '/api/suggestions') {
     try {
       return json(res, 200, { ...(await fetchSuggestions()), writesEnabled: WRITES_ENABLED,
-                              writeDisabledReason: WRITE_DISABLED_REASON, demo: DEMO });
+                              writeDisabledReason: WRITE_DISABLED_REASON,
+                              passwordRequired: PASSWORD_REQUIRED, demo: DEMO });
     } catch (err) {
       return json(res, 503, { error: 'database_unavailable', detail: err.message });
     }
   }
 
   if (path === '/healthz') {
-    const writes = WRITES_ENABLED ? (DEMO ? 'demo' : 'on') : `off (${WRITE_DISABLED_REASON})`;
+    const writes = !WRITES_ENABLED ? `off (${WRITE_DISABLED_REASON})`
+      : (DEMO ? 'demo' : 'on') + (PASSWORD_REQUIRED ? '' : ' (no password)');
     if (DEMO) return json(res, 200, { ok: true, db: 'demo', writes });
     try {
       await (await readPool()).query('select 1');
@@ -428,12 +432,13 @@ server.listen(PORT, HOST, () => {
     console.log('ต่อฐานข้อมูลจริงแล้ว — ตรวจสถานะได้ที่ /healthz');
   }
 
-  if (WRITES_ENABLED) {
+  if (!WRITES_ENABLED) {
+    console.log('หน้ากรอกข้อมูลปิดอยู่ — ตั้ง DATABASE_URL_WRITE ใน .env เพื่อเปิดใช้ (role ที่ insert ได้)');
+  } else if (PASSWORD_REQUIRED) {
     console.log('หน้ากรอกข้อมูล: /add  (ต้องกรอกรหัสตาม WRITE_PASSWORD)');
-  } else if (WRITE_DISABLED_REASON === 'no_password') {
-    console.log('หน้ากรอกข้อมูลปิดอยู่ — ตั้ง WRITE_PASSWORD ใน .env เพื่อเปิดใช้');
   } else {
-    console.log('หน้ากรอกข้อมูลปิดอยู่ — ตั้ง DATABASE_URL_WRITE ใน .env ด้วย (role ที่ insert ได้)');
+    console.log('หน้ากรอกข้อมูล: /add  ⚠ ไม่ได้ตั้งรหัส — ใครเปิดหน้านี้ได้ก็เพิ่มรายการได้');
+    console.log('  ตั้ง WRITE_PASSWORD ใน .env เมื่อต้องการให้ต้องกรอกรหัสก่อนบันทึก');
   }
 
   if (HOST === '0.0.0.0') {
