@@ -139,18 +139,6 @@
 <main>
   <div class="banner" id="banner" hidden></div>
 
-  <!-- รหัสอยู่แยกด้านบนเพราะทั้งสองฟอร์มใช้ตัวเดียวกัน ซ่อนทั้งก้อนถ้าเซิร์ฟเวอร์ไม่ได้ตั้งรหัส -->
-  <section class="panel" id="authPanel" hidden>
-    <h2 data-i18n="authTitle"></h2>
-    <p class="hint" data-i18n="authHint"></p>
-    <div class="grid">
-      <div class="field">
-        <label for="password" data-i18n="passwordLabel"></label>
-        <input type="password" id="password" autocomplete="current-password">
-      </div>
-    </div>
-  </section>
-
   <section class="panel">
     <h2 data-i18n="backupTitle"></h2>
     <p class="hint" data-i18n="backupHint"></p>
@@ -299,12 +287,8 @@ const T = {
 
     demoBanner: '<b>โหมดตัวอย่าง</b> — บันทึกได้ แต่ข้อมูลอยู่แค่ในหน่วยความจำของเซิร์ฟเวอร์ <b>หายเมื่อรีสตาร์ท</b> ยังไม่ได้ตั้ง DATABASE_URL ใน .env',
     disabledNoWriteUrl: '<b>หน้านี้ปิดอยู่</b> — ยังไม่ได้ตั้ง DATABASE_URL_WRITE (role ที่ insert ได้) ในไฟล์ .env บนเซิร์ฟเวอร์',
-    noPasswordBanner: '<b>หน้านี้ไม่ได้ตั้งรหัส</b> — ใครเปิดหน้านี้ได้ก็เพิ่มรายการได้ ถ้าต้องการให้กรอกรหัสก่อนบันทึก ให้ตั้ง WRITE_PASSWORD ในไฟล์ .env บนเซิร์ฟเวอร์',
     loadFailed: (detail) => '<b>โหลดรายชื่อระบบไม่สำเร็จ</b> — ' + detail + ' (ยังกรอกได้ แต่จะไม่มีรายการให้เลือก)',
 
-    authTitle: 'รหัสสำหรับบันทึก',
-    authHint: 'รหัสตัวเดียวใช้ร่วมกันทั้งทีม ตั้งไว้ในไฟล์ .env บนเซิร์ฟเวอร์ เบราว์เซอร์จำไว้ให้ กรอกครั้งเดียวต่อเครื่อง',
-    passwordLabel: 'รหัส',
 
     backupTitle: 'บันทึกการ backup',
     backupHint: 'ใช้กับงานที่ทำมือ ถ้าเป็นงานที่มีสคริปต์อยู่แล้ว ให้สคริปต์เขียน INSERT เองจะแม่นกว่า (ดู SETUP.md)',
@@ -342,8 +326,6 @@ const T = {
     knownSourceNote: '',
 
     errRequired: 'ต้องกรอกช่องนี้',
-    errBadPassword: 'รหัสไม่ถูกต้อง',
-    errTooMany: 'กรอกรหัสผิดหลายครั้งเกินไป — รอ 5 นาทีแล้วลองใหม่',
     errWritesDisabled: 'หน้านี้ปิดอยู่ ดูข้อความด้านบน',
     errNetwork: (detail) => 'บันทึกไม่สำเร็จ: ' + detail,
 
@@ -362,12 +344,8 @@ const T = {
 
     demoBanner: '<b>Demo mode</b> — saving works, but rows live in the server’s memory and are <b>lost on restart</b>. DATABASE_URL is not set in .env',
     disabledNoWriteUrl: '<b>This page is disabled</b> — DATABASE_URL_WRITE (a role that can insert) is not set in .env on the server',
-    noPasswordBanner: '<b>No password is set</b> — anyone who can open this page can add records. Set WRITE_PASSWORD in .env on the server to require one',
     loadFailed: (detail) => '<b>Could not load the system list</b> — ' + detail + ' (you can still type, but there will be no suggestions)',
 
-    authTitle: 'Write password',
-    authHint: 'One password shared by the whole team, set in .env on the server. Your browser remembers it, so you only type it once per machine',
-    passwordLabel: 'Password',
 
     backupTitle: 'Log a backup',
     backupHint: 'For backups done by hand. If a script already runs the job, having the script INSERT its own row is more accurate (see SETUP.md)',
@@ -405,8 +383,6 @@ const T = {
     knownSourceNote: '',
 
     errRequired: 'This field is required',
-    errBadPassword: 'Wrong password',
-    errTooMany: 'Too many wrong attempts — wait 5 minutes and try again',
     errWritesDisabled: 'This page is disabled, see the message above',
     errNetwork: (detail) => 'Could not save: ' + detail,
 
@@ -426,16 +402,19 @@ const DURATION_UNITS = { s: 1, m: 60, h: 3600 };
 
 const LS = {
   lang: 'backupDashboardLang',
-  password: 'backupDashboardWritePassword',
   performer: 'backupDashboardPerformer',
 };
+
+// เวอร์ชันก่อนหน้าเก็บรหัสสำหรับบันทึกไว้ในเบราว์เซอร์ ตอนนี้ไม่มีรหัสแล้ว
+// ล้างทิ้งให้ ไม่ปล่อยรหัสเก่าค้างใน localStorage โดยไม่มีใครใช้
+localStorage.removeItem('backupDashboardWritePassword');
 
 let lang = localStorage.getItem(LS.lang) === 'en' ? 'en' : 'th';
 const t = () => T[lang];
 
 const state = {
   suggestions: { source: [], performed_by: [], destination: [] },
-  writesEnabled: true, passwordRequired: true, demo: false, banner: null,
+  writesEnabled: true, demo: false, banner: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -547,24 +526,20 @@ async function submitTo(url, payload, form, resultEl, onSuccess) {
   resultEl.textContent = '';
   resultEl.className = 'result';
 
-  const password = state.passwordRequired ? $('password').value : '';
   const button = form.querySelector('button[type="submit"]');
   const label = button.textContent;
   button.disabled = true;
   button.textContent = t().saving;
 
   try {
-    // รหัสส่งไปใน body ไม่ใช่ header — ค่า header รับได้แค่ ISO-8859-1
-    // รหัสที่มีอักษรไทยจะทำให้ fetch โยน error ทิ้งก่อนส่งออกไปเลย
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state.passwordRequired ? { ...payload, password } : payload),
+      body: JSON.stringify(payload),
     });
     const body = await res.json().catch(() => ({}));
 
     if (res.ok) {
-      if (state.passwordRequired) localStorage.setItem(LS.password, password);
       resultEl.className = 'result ok';
       resultEl.textContent = onSuccess(body.saved) + (body.demo ? t().savedDemo : '');
       // รายชื่อระบบอาจมีค่าใหม่เพิ่มเข้ามา ดึงใหม่เพื่อให้ dropdown ทันสมัย
@@ -573,9 +548,7 @@ async function submitTo(url, payload, form, resultEl, onSuccess) {
     }
 
     resultEl.className = 'result bad';
-    if (res.status === 401) resultEl.textContent = t().errBadPassword;
-    else if (res.status === 429) resultEl.textContent = t().errTooMany;
-    else if (res.status === 403) resultEl.textContent = t().errWritesDisabled;
+    if (res.status === 403) resultEl.textContent = t().errWritesDisabled;
     else if (body.error === 'invalid_field' && showFieldError(form, body.field, body.detail)) {
       resultEl.textContent = '';
     } else {
@@ -656,17 +629,9 @@ async function loadSuggestions() {
       destination: body.destination ?? [],
     };
     state.demo = Boolean(body.demo);
-    state.passwordRequired = Boolean(body.passwordRequired);
     setWritesEnabled(Boolean(body.writesEnabled));
 
-    // ช่องรหัสโผล่เฉพาะตอนที่เซิร์ฟเวอร์ต้องใช้จริง ไม่ให้มีช่องว่างที่ไม่มีความหมาย
-    $('authPanel').hidden = !state.passwordRequired;
-
-    state.banner =
-      !body.writesEnabled ? 'disabledNoWriteUrl'
-      : body.demo ? 'demoBanner'
-      : !state.passwordRequired ? 'noPasswordBanner'
-      : null;
+    state.banner = !body.writesEnabled ? 'disabledNoWriteUrl' : body.demo ? 'demoBanner' : null;
   } catch (err) {
     // ดึงรายชื่อไม่ได้ก็ยังกรอกได้ แค่ไม่มี dropdown ช่วย — บอกให้รู้แต่ไม่บล็อก
     state.banner = 'loadFailed';
@@ -689,7 +654,6 @@ for (const btn of document.querySelectorAll('[data-lang]')) {
 $('source').addEventListener('input', () => checkSourceName('source', 'sourceNote'));
 $('testSource').addEventListener('input', () => checkSourceName('testSource', 'testSourceNote'));
 
-$('password').value = localStorage.getItem(LS.password) ?? '';
 $('performedBy').value = localStorage.getItem(LS.performer) ?? '';
 $('testedBy').value = localStorage.getItem(LS.performer) ?? '';
 $('backedUpAt').value = nowForInput();

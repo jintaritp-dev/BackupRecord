@@ -13,7 +13,6 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { makeSampleData } from './sample-data.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -34,7 +33,6 @@ function loadEnvFile() {
 const env = { ...loadEnvFile(), ...process.env };
 const DATABASE_URL = env.DATABASE_URL?.trim() || '';
 const DATABASE_URL_WRITE = env.DATABASE_URL_WRITE?.trim() || '';
-const WRITE_PASSWORD = env.WRITE_PASSWORD?.trim() || '';
 const HOST = env.HOST?.trim() || '127.0.0.1';
 const PORT = Number(env.PORT ?? 8790);
 const DEMO = !DATABASE_URL || DATABASE_URL.includes('ชื่อฐานข้อมูล');
@@ -42,10 +40,6 @@ const DEMO = !DATABASE_URL || DATABASE_URL.includes('ชื่อฐานข้
 // สวิตช์เปิดการเขียนคือ DATABASE_URL_WRITE — ต้องตั้งใจตั้งบนเซิร์ฟเวอร์เท่านั้นจึงเปิด
 const WRITE_DISABLED_REASON = !DEMO && !DATABASE_URL_WRITE ? 'no_write_database_url' : null;
 const WRITES_ENABLED = WRITE_DISABLED_REASON === null;
-
-// รหัสผ่านเป็นตัวเลือก ไม่ตั้งก็กรอกข้อมูลได้เลยโดยไม่ต้องใส่รหัส
-// เปิดใช้ทีหลังได้ด้วยการเติมค่าเดียวใน .env ไม่ต้องแก้โค้ด
-const PASSWORD_REQUIRED = Boolean(WRITE_PASSWORD);
 
 // --- คิวรี ------------------------------------------------------------------
 // ทุกคิวรีเป็น string คงที่ ไม่มีส่วนไหนประกอบจาก input ของผู้ใช้
@@ -250,38 +244,6 @@ async function insertRestoreTest(body) {
   return rows[0];
 }
 
-// --- รหัสผ่านสำหรับเขียน (ใช้เมื่อตั้ง WRITE_PASSWORD ไว้) --------------------------
-// hash ทั้งสองฝั่งก่อนเทียบ เพื่อให้ buffer ยาวเท่ากันเสมอ — timingSafeEqual โยน error
-// ถ้าความยาวไม่เท่ากัน และการเทียบความยาวตรงๆ ก็เปิดเผยความยาวรหัสจริงออกไป
-const sha256 = (value) => createHash('sha256').update(String(value ?? ''), 'utf8').digest();
-const passwordMatches = (given) => timingSafeEqual(sha256(given), sha256(WRITE_PASSWORD));
-
-// รหัสที่ใช้ร่วมกันทั้งทีมมักสั้น ต้องกัน brute force ด้วยตัวนับต่อ IP
-const MAX_FAILURES = 10;
-const LOCKOUT_WINDOW_MS = 5 * 60_000;
-const failures = new Map();
-
-const clientIp = (req) => req.socket.remoteAddress ?? 'unknown';
-
-function isLockedOut(ip) {
-  const record = failures.get(ip);
-  if (!record) return false;
-  if (Date.now() > record.resetAt) {
-    failures.delete(ip);
-    return false;
-  }
-  return record.count >= MAX_FAILURES;
-}
-
-function noteFailure(ip) {
-  const record = failures.get(ip);
-  if (!record || Date.now() > record.resetAt) {
-    failures.set(ip, { count: 1, resetAt: Date.now() + LOCKOUT_WINDOW_MS });
-  } else {
-    record.count += 1;
-  }
-}
-
 // --- อ่าน body -------------------------------------------------------------
 const MAX_BODY_BYTES = 32 * 1024;
 
@@ -346,12 +308,9 @@ async function handleWrite(req, res, insert) {
 
   if (!WRITES_ENABLED) return reject(403, { error: 'writes_disabled', reason: WRITE_DISABLED_REASON });
 
-  const ip = clientIp(req);
-  if (PASSWORD_REQUIRED && isLockedOut(ip)) return reject(429, { error: 'too_many_attempts' });
-
-  // รหัสเดินทางมาใน body ไม่ใช่ header เพราะค่า header รับได้แค่ ISO-8859-1
-  // รหัสที่มีอักษรไทยจะทำให้ fetch ในเบราว์เซอร์โยน error ทิ้งก่อนส่งออกมาเลย
-  // จึงต้องอ่าน body ก่อนตรวจรหัส — ปลอดภัยเพราะมีเพดาน 32 KB คุมอยู่แล้ว
+  // ไม่มีการยืนยันตัวตน — ใครยิงถึง endpoint นี้ได้ก็เพิ่มแถวได้
+  // สิ่งที่กันไว้คือขอบเขตเครือข่าย (ไฟร์วอลล์เฉพาะ subnet ออฟฟิศ) กับสิทธิ์ระดับ DB
+  // ที่ให้แค่ insert จึงเพิ่มได้เท่านั้น แก้หรือลบของเก่าไม่ได้
   let body;
   try {
     body = await readJsonBody(req);
@@ -359,16 +318,7 @@ async function handleWrite(req, res, insert) {
     return json(res, err.httpStatus ?? 400, { error: err.message });
   }
 
-  if (PASSWORD_REQUIRED) {
-    if (!passwordMatches(body?.password)) {
-      noteFailure(ip);
-      return json(res, 401, { error: 'bad_password' });
-    }
-    failures.delete(ip);   // รหัสถูกแล้ว ล้างตัวนับของ IP นี้
-  }
-
   try {
-    // ตัว insert อ่านเฉพาะฟิลด์ที่รู้จัก คีย์ password ที่ติดมาจึงถูกมองข้ามไปเอง
     const saved = await insert(body);
     return json(res, 201, { saved, demo: DEMO });
   } catch (err) {
@@ -408,7 +358,7 @@ const server = createServer(async (req, res) => {
     try {
       return json(res, 200, { ...(await fetchSuggestions()), writesEnabled: WRITES_ENABLED,
                               writeDisabledReason: WRITE_DISABLED_REASON,
-                              passwordRequired: PASSWORD_REQUIRED, demo: DEMO });
+                              demo: DEMO });
     } catch (err) {
       return json(res, 503, { error: 'database_unavailable', detail: err.message });
     }
@@ -416,7 +366,7 @@ const server = createServer(async (req, res) => {
 
   if (path === '/healthz') {
     const writes = !WRITES_ENABLED ? `off (${WRITE_DISABLED_REASON})`
-      : (DEMO ? 'demo' : 'on') + (PASSWORD_REQUIRED ? '' : ' (no password)');
+      : (DEMO ? 'demo' : 'on');
     if (DEMO) return json(res, 200, { ok: true, db: 'demo', writes });
     try {
       await (await readPool()).query('select 1');
@@ -445,11 +395,9 @@ server.listen(PORT, HOST, () => {
 
   if (!WRITES_ENABLED) {
     console.log('หน้ากรอกข้อมูลปิดอยู่ — ตั้ง DATABASE_URL_WRITE ใน .env เพื่อเปิดใช้ (role ที่ insert ได้)');
-  } else if (PASSWORD_REQUIRED) {
-    console.log('หน้ากรอกข้อมูล: /add  (ต้องกรอกรหัสตาม WRITE_PASSWORD)');
   } else {
-    console.log('หน้ากรอกข้อมูล: /add  ⚠ ไม่ได้ตั้งรหัส — ใครเปิดหน้านี้ได้ก็เพิ่มรายการได้');
-    console.log('  ตั้ง WRITE_PASSWORD ใน .env เมื่อต้องการให้ต้องกรอกรหัสก่อนบันทึก');
+    console.log('หน้ากรอกข้อมูล: /add  ⚠ ไม่มีรหัส — ใครเปิดหน้านี้ได้ก็เพิ่มรายการได้');
+    console.log('  กันด้วยไฟร์วอลล์เฉพาะ subnet ออฟฟิศเท่านั้น');
   }
 
   if (HOST === '0.0.0.0') {
