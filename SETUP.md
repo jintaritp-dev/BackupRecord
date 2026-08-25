@@ -89,8 +89,14 @@ createdb -U postgres backup_log
 
 **2.1** คัดลอกไฟล์ [schema.sql](schema.sql) ขึ้นเครื่องเซิร์ฟเวอร์ (จะ `git clone` ในขั้น 3 ก็ได้ แล้วย้อนมาทำขั้นนี้)
 
-**2.2** แก้รหัสผ่านในไฟล์ก่อนรัน — หาบรรทัด `create role backup_dashboard_ro login password 'CHANGE-ME'`
-แล้วเปลี่ยน `CHANGE-ME` เป็นรหัสจริง (สุ่มยาวๆ ไม่ต้องจำ เดี๋ยวไปอยู่ในไฟล์ `.env`)
+**2.2** แก้รหัสผ่านในไฟล์ก่อนรัน — มีสอง role สองรหัส (สุ่มยาวๆ ไม่ต้องจำ เดี๋ยวไปอยู่ในไฟล์ `.env`)
+
+| บรรทัดในไฟล์ | role | ใช้ทำอะไร |
+|---|---|---|
+| `create role backup_dashboard_ro ... 'CHANGE-ME'` | ตัวอ่าน | หน้า dashboard — select อย่างเดียว |
+| `create role backup_dashboard_rw ... 'CHANGE-ME-TOO'` | ตัวเขียน | หน้ากรอกข้อมูล `/add` — insert อย่างเดียว |
+
+แยกสอง role เพราะ path อ่านจะเขียนอะไรไม่ได้เลยแม้โค้ดจะมีบั๊ก และ role ตัวเขียนเองก็แก้/ลบไม่ได้
 
 **2.3** รัน
 
@@ -126,6 +132,32 @@ psql "postgres://backup_dashboard_ro:รหัสที่ตั้ง@localhost
 > ```
 > psql "postgres://backup_dashboard_ro:รหัสที่ตั้ง@localhost:5432/backup_log" -c "delete from backup_records"
 > ```
+
+**2.6 ตรวจ role ตัวเขียน** — สามคำสั่งนี้ต้องได้ผลตามที่เขียนไว้ ไม่งั้นแปลว่า grant ผิด
+
+เพิ่มได้ (ต้องสำเร็จ):
+
+```
+psql "postgres://backup_dashboard_rw:รหัสของ_rw@localhost:5432/backup_log" -c "insert into restore_tests (tested_at, source, tested_by, result) values (now(), 'ทดสอบสิทธิ์', 'setup', 'passed')"
+```
+
+แก้ไม่ได้ (**ต้อง error**):
+
+```
+psql "postgres://backup_dashboard_rw:รหัสของ_rw@localhost:5432/backup_log" -c "update backup_records set source = 'x'"
+```
+
+ลบไม่ได้ (**ต้อง error**):
+
+```
+psql "postgres://backup_dashboard_rw:รหัสของ_rw@localhost:5432/backup_log" -c "delete from restore_tests"
+```
+
+แถวทดสอบสิทธิ์ที่เพิ่งเพิ่มลบทิ้งด้วย superuser ทีหลังได้:
+
+```
+psql -U postgres -d backup_log -c "delete from restore_tests where source = 'ทดสอบสิทธิ์'"
+```
 
 ---
 
@@ -169,16 +201,22 @@ cd /opt/backup-dashboard && npm install --omit=dev
 
 ### 3.4 สร้างไฟล์ `.env`
 
-สร้างไฟล์ชื่อ `.env` ในโฟลเดอร์เดียวกับ `server.mjs` เนื้อหา 3 บรรทัด
+สร้างไฟล์ชื่อ `.env` ในโฟลเดอร์เดียวกับ `server.mjs`
 
 ```
 DATABASE_URL=postgres://backup_dashboard_ro:รหัสที่ตั้ง@localhost:5432/backup_log
+DATABASE_URL_WRITE=postgres://backup_dashboard_rw:รหัสของ_rw@localhost:5432/backup_log
+WRITE_PASSWORD=รหัสที่ทีมใช้กดบันทึก
 HOST=0.0.0.0
 PORT=8790
 ```
 
 - `localhost` ใช้ได้เพราะหน้าเว็บรันบนเครื่องเดียวกับ Postgres — ไม่ต้องเปิดพอร์ต 5432 ออกนอกเครื่องเลย
 - `HOST=0.0.0.0` คือสิ่งที่ทำให้เครื่องอื่นใน LAN เปิดได้ ถ้าใส่ `127.0.0.1` จะเปิดได้แค่บนเซิร์ฟเวอร์เอง
+- `DATABASE_URL_WRITE` กับ `WRITE_PASSWORD` เป็นของหน้ากรอกข้อมูล `/add`
+  **ขาดค่าใดค่าหนึ่งหน้านั้นจะปิดทั้งหมด** ถ้ายังไม่อยากเปิดก็เว้นว่างไว้ dashboard ยังทำงานปกติ
+- `WRITE_PASSWORD` วิ่งเป็น plain text เพราะยังไม่มี HTTPS — ตั้งให้ยาว
+  และอย่าใช้รหัสเดียวกับอย่างอื่นในบริษัท
 
 Linux — กันไม่ให้คนอื่นบนเครื่องอ่านรหัสในไฟล์นี้:
 
@@ -200,7 +238,14 @@ node server.mjs
 curl http://localhost:8790/healthz
 ```
 
-ต้องได้ `{"ok":true,"db":"up"}` — ถ้าได้ `"db":"demo"` คือ `.env` ยังไม่ถูกอ่าน, ถ้าได้ `"db":"down"` คือรหัสหรือชื่อฐานข้อมูลผิด
+ต้องได้ `{"ok":true,"db":"up","writes":"on"}`
+
+| ผลที่ได้ | ความหมาย |
+|---|---|
+| `"db":"demo"` | ยังอ่าน `.env` ไม่เจอ หรือ `DATABASE_URL` ยังเป็นค่าตัวอย่าง |
+| `"db":"down"` | รหัสหรือชื่อฐานข้อมูลผิด — ดูรายละเอียดใน `detail` |
+| `"writes":"off (no_password)"` | ยังไม่ได้ตั้ง `WRITE_PASSWORD` — หน้า `/add` จะปิด |
+| `"writes":"off (no_write_database_url)"` | ตั้งรหัสแล้วแต่ขาด `DATABASE_URL_WRITE` |
 
 กด `Ctrl+C` เพื่อหยุด แล้วไปตั้งเป็นเซอร์วิส
 
@@ -348,20 +393,33 @@ psql -U postgres -d backup_log -c "insert into backup_records
 log-backup "ระบบกล้องวงจรปิด" "ปรีชา" success manual "External HDD ตู้เซฟชั้น 3"
 ```
 
-### บันทึกผลทดสอบ restore
+### แบบ D — กรอกผ่านหน้าเว็บ
 
-`last_restore_test_at` ไม่ได้เติมเองอัตโนมัติ — พอทดสอบกู้คืนเสร็จให้ `UPDATE` แถวล่าสุดของระบบนั้น
+เปิดหน้า `/add` แล้วกรอก — ต้องตั้ง `WRITE_PASSWORD` กับ `DATABASE_URL_WRITE` ไว้ก่อน (ดูขั้น 3.4)
+
+เหมาะกับงานที่ทำมือ ข้อดีคือช่อง "ระบบ / ข้อมูล" มี dropdown ดึงชื่อที่เคยใช้มาให้เลือก
+กันปัญหาสะกดไม่ตรงตามข้อ 1 ข้างล่าง และขนาดไฟล์กรอกเป็น GB/TB ได้ ไม่ต้องคิดเป็นไบต์
+
+**แต่งานที่มีสคริปต์อยู่แล้วให้ใช้แบบ A** — คนลืมกรอก แต่ cron ไม่ลืม
+
+### บันทึกผลทดสอบกู้คืน
+
+ผลทดสอบอยู่ในตาราง `restore_tests` แยกจาก `backup_records` เพราะการทดสอบเป็นเหตุการณ์
+เหมือน backup ไม่ใช่คุณสมบัติของแถว backup — จึงเก็บประวัติได้ครบทุกครั้ง ไม่ใช่แค่ครั้งล่าสุด
+
+กรอกได้จากส่วนล่างของหน้า `/add` หรือ `INSERT` ตรงๆ
 
 ```sql
-update backup_records
-   set last_restore_test_at = now(),
-       last_restore_test_result = 'passed'
- where source = 'PostgreSQL — ERP (prod)'
-   and backed_up_at = (select max(backed_up_at) from backup_records
-                        where source = 'PostgreSQL — ERP (prod)');
+insert into restore_tests (tested_at, source, tested_by, result, notes)
+values (now(), 'PostgreSQL — ERP (prod)', 'สมชาย ใจดี', 'passed',
+        'restore ลง staging แล้วเทียบจำนวนแถว 12 ตารางหลัก ตรงทั้งหมด');
 ```
 
-หน้าเว็บอ่านค่านี้จากแถวล่าสุดของแต่ละระบบ ถ้าเกิน 180 วันหรือไม่เคยทดสอบเลย จะขึ้นเตือนใน KPI
+หน้าเว็บอ่านผลล่าสุดของแต่ละระบบมาแสดงในการ์ด และขึ้นเตือนใน KPI ถ้าเกิน 180 วัน
+ไม่ผ่าน หรือยังไม่เคยทดสอบเลย ประวัติทั้งหมดดูได้ที่ตาราง "ประวัติการทดสอบกู้คืน" ท้ายหน้า dashboard
+
+`source` ต้องสะกดตรงกับใน `backup_records` เพราะหน้าเว็บจับคู่ด้วยค่านี้ — ฟอร์มใน `/add`
+จะเตือนให้เองถ้าพิมพ์ชื่อที่ยังไม่มีในระบบ
 
 ### สองข้อที่พลาดกันบ่อย
 
@@ -416,7 +474,10 @@ services:
 
 - [ ] `psql -d backup_log -c "select count(*) from backup_records"` ทำงานได้
 - [ ] role `backup_dashboard_ro` อ่านได้ แต่ `delete` ต้อง error
-- [ ] `curl localhost:8790/healthz` ได้ `{"ok":true,"db":"up"}`
+- [ ] role `backup_dashboard_rw` `insert` ได้ แต่ `update` กับ `delete` ต้อง error (ข้อ 2.6)
+- [ ] `curl localhost:8790/healthz` ได้ `{"ok":true,"db":"up","writes":"on"}`
+- [ ] เปิด `/add` กรอกทดสอบหนึ่งรายการ แล้วรายการนั้นโผล่ในหน้า dashboard
+- [ ] กรอกรหัสผิดแล้วขึ้นข้อความว่ารหัสไม่ถูกต้อง ไม่ใช่บันทึกผ่าน
 - [ ] เซอร์วิสรันเอง — ลอง reboot เครื่องแล้วหน้าเว็บยังขึ้น
 - [ ] เครื่องอื่นใน LAN เปิด `http://<ip>:8790` ได้
 - [ ] พอร์ต 8790 **ไม่ได้** ถูก forward ออกอินเทอร์เน็ต

@@ -27,8 +27,7 @@ const SCHEDULES = [
     sizeBytes: 4_509_715_660,
     durationSeconds: 740,
     retentionDays: 30,
-    restoreTestDaysAgo: 12,
-    restoreTestResult: 'passed',
+    restoreTests: [[12, 'passed'], [104, 'passed']],
     evidenceDir: String.raw`\\nas01\backup\pg\logs`,
     failAt: [2, 17], // รอบที่ล้มเหลว นับถอยหลังเป็นวัน
   },
@@ -42,8 +41,7 @@ const SCHEDULES = [
     sizeBytes: 318_767_104,
     durationSeconds: 42,
     retentionDays: 14,
-    restoreTestDaysAgo: 12,
-    restoreTestResult: 'passed',
+    restoreTests: [[12, 'passed']],
   },
   {
     source: String.raw`ไฟล์เอกสารบัญชี (\\fileserver\accounting)`,
@@ -55,8 +53,7 @@ const SCHEDULES = [
     sizeBytes: 2_147_483_648,
     durationSeconds: 610,
     retentionDays: 90,
-    restoreTestDaysAgo: 40,
-    restoreTestResult: 'passed',
+    restoreTests: [[40, 'passed'], [130, 'passed']],
   },
   {
     source: 'Google Workspace — Mail & Drive',
@@ -68,8 +65,7 @@ const SCHEDULES = [
     sizeBytes: 64_424_509_440,
     durationSeconds: 9_800,
     retentionDays: 365,
-    restoreTestDaysAgo: 210, // เกินรอบทดสอบ restore มานาน
-    restoreTestResult: 'passed',
+    restoreTests: [[210, 'passed']], // เกินรอบทดสอบ restore มานาน
     notes: 'export ด้วยมือทุกวันอาทิตย์ ตามนโยบายเก็บอีเมล 1 ปี',
   },
   {
@@ -82,8 +78,7 @@ const SCHEDULES = [
     sizeBytes: 1_932_735_283,
     durationSeconds: 380,
     retentionDays: 60,
-    restoreTestDaysAgo: null, // ยังไม่เคยทดสอบ restore เลย
-    restoreTestResult: null,
+    restoreTests: [], // ยังไม่เคยทดสอบ restore เลย
   },
   {
     source: 'ระบบกล้องวงจรปิด (CCTV NVR)',
@@ -95,18 +90,19 @@ const SCHEDULES = [
     sizeBytes: 966_367_641_600,
     durationSeconds: 18_400,
     retentionDays: 180,
-    restoreTestDaysAgo: 95,
-    restoreTestResult: 'failed',
+    restoreTests: [[95, 'failed'], [220, 'passed']],
     notes: 'ไฟล์วิดีโอบางส่วนเปิดไม่ได้ตอนทดสอบกู้คืน — รอเปลี่ยนฮาร์ดดิสก์',
   },
 ];
 
 const WINDOW_DAYS = 90;
 
-/** คืนรายการ backup ย้อนหลัง 90 วัน ในรูปแบบเดียวกับที่ /api/backups ส่งออก */
-export function makeSampleRecords(now = Date.now()) {
+/** คืน { records, restoreTests } ย้อนหลัง 90 วัน ในรูปแบบเดียวกับที่ /api/backups ส่งออก */
+export function makeSampleData(now = Date.now()) {
   const records = [];
+  const restoreTests = [];
   let id = 1;
+  let testId = 1;
 
   for (const job of SCHEDULES) {
     const stepMs = job.everyHours * HOUR;
@@ -129,14 +125,28 @@ export function makeSampleRecords(now = Date.now()) {
         size_bytes: failed ? null : vary(job.sizeBytes, 0.06),
         duration_seconds: failed ? vary(60, 0.4) : vary(job.durationSeconds, 0.15),
         retention_days: job.retentionDays,
-        last_restore_test_at:
-          job.restoreTestDaysAgo == null ? null : new Date(now - job.restoreTestDaysAgo * DAY).toISOString(),
-        last_restore_test_result: job.restoreTestResult,
         evidence_url: job.evidenceDir ? `${job.evidenceDir}${BS}${day}.log` : null,
         notes: failed ? 'ดิสก์ปลายทางเต็ม — ล้างไฟล์เก่าแล้วรันซ้ำผ่าน' : (job.notes ?? null),
       });
     }
   }
 
-  return records.sort((a, b) => b.backed_up_at.localeCompare(a.backed_up_at));
+  // ผลทดสอบ restore เป็นเหตุการณ์แยก ไม่ผูกกับแถว backup ใดแถวหนึ่ง
+  for (const job of SCHEDULES) {
+    for (const [daysAgo, result] of job.restoreTests ?? []) {
+      restoreTests.push({
+        id: testId++,
+        tested_at: new Date(now - daysAgo * DAY).toISOString(),
+        source: job.source,
+        tested_by: job.performedBy.startsWith('cron:') ? 'สมชาย ใจดี' : job.performedBy,
+        result,
+        notes: result === 'failed' ? 'กู้คืนได้ไม่ครบ — ดูรายละเอียดในบันทึกการทดสอบ' : null,
+      });
+    }
+  }
+
+  return {
+    records: records.sort((a, b) => b.backed_up_at.localeCompare(a.backed_up_at)),
+    restoreTests: restoreTests.sort((a, b) => b.tested_at.localeCompare(a.tested_at)),
+  };
 }

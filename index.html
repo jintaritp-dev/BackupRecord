@@ -76,6 +76,12 @@
   .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .seg button { border: 0; border-radius: 0; padding: 6px 12px; background: var(--surface); }
   .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .btnlink {
+    display: inline-block; text-decoration: none; font-weight: 600;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+    border-radius: 8px; padding: 6px 12px;
+  }
+  .btnlink:hover { filter: brightness(1.08); }
 
   main { max-width: 1440px; margin: 0 auto; padding: 20px 22px 60px; }
   section { margin-bottom: 26px; }
@@ -164,6 +170,7 @@
   tbody tr.row:hover { background: var(--surface-2); }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   td.src { white-space: normal; min-width: 200px; overflow-wrap: anywhere; }
+  td.wrap { white-space: normal; min-width: 220px; overflow-wrap: anywhere; }
   .detail td { background: var(--surface-2); white-space: normal; }
   .detail dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; }
   .detail dt { color: var(--muted); white-space: nowrap; }
@@ -199,6 +206,7 @@
   </div>
   <div class="toolbar">
     <span class="stamp" id="stamp"></span>
+    <a class="btnlink" href="add" data-i18n="addRecord"></a>
     <button id="refreshBtn" data-i18n="refresh"></button>
     <div class="seg" role="group" aria-label="language">
       <button data-lang="th">ไทย</button>
@@ -258,6 +266,18 @@
       <div class="pager" id="pager" hidden></div>
     </div>
   </section>
+
+  <section>
+    <h2 data-i18n="restoreHistoryTitle"></h2>
+    <div class="panel">
+      <div class="tablewrap">
+        <table>
+          <thead><tr id="restoreHead"></tr></thead>
+          <tbody id="restoreBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -271,6 +291,7 @@ const T = {
     subtitle: 'backup เมื่อไหร่ · backup อะไร · ใครเป็นคนทำ',
     refresh: 'รีเฟรช',
     refreshing: 'กำลังโหลด…',
+    addRecord: '+ เพิ่มรายการ',
     stamp: (time) => 'ข้อมูล ณ ' + time,
     demoBanner: '<b>โหมดตัวอย่าง</b> — ข้อมูลที่เห็นเป็นข้อมูลสมมติ ยังไม่ได้ตั้งค่า DATABASE_URL ในไฟล์ .env',
     errorBanner: (detail) => '<b>เชื่อมต่อฐานข้อมูลไม่ได้</b> — ' + detail,
@@ -332,7 +353,14 @@ const T = {
     col: {
       backed_up_at: 'วันเวลา', source: 'ระบบ / ข้อมูล', backup_type: 'ประเภท', status: 'สถานะ',
       performed_by: 'ผู้ทำ', destination: 'ที่เก็บ', size_bytes: 'ขนาด',
-      duration_seconds: 'ใช้เวลา', retention_days: 'เก็บไว้', last_restore_test_at: 'ทดสอบ restore',
+      duration_seconds: 'ใช้เวลา', retention_days: 'เก็บไว้',
+    },
+
+    restoreHistoryTitle: 'ประวัติการทดสอบกู้คืน',
+    restoreEmpty: 'ยังไม่มีบันทึกการทดสอบกู้คืน — บันทึกได้ที่หน้าเพิ่มรายการ',
+    restoreCol: {
+      tested_at: 'วันที่ทดสอบ', source: 'ระบบ / ข้อมูล', tested_by: 'ผู้ทดสอบ',
+      result: 'ผล', notes: 'หมายเหตุ',
     },
     notes: 'หมายเหตุ',
     evidence: 'หลักฐาน',
@@ -351,6 +379,7 @@ const T = {
     subtitle: 'when it ran · what was backed up · who did it',
     refresh: 'Refresh',
     refreshing: 'Loading…',
+    addRecord: '+ Add record',
     stamp: (time) => 'As of ' + time,
     demoBanner: '<b>Demo mode</b> — showing sample data; DATABASE_URL is not set in .env',
     errorBanner: (detail) => '<b>Cannot reach the database</b> — ' + detail,
@@ -412,7 +441,14 @@ const T = {
     col: {
       backed_up_at: 'When', source: 'Source', backup_type: 'Type', status: 'Status',
       performed_by: 'Performed by', destination: 'Destination', size_bytes: 'Size',
-      duration_seconds: 'Duration', retention_days: 'Retention', last_restore_test_at: 'Restore test',
+      duration_seconds: 'Duration', retention_days: 'Retention',
+    },
+
+    restoreHistoryTitle: 'Restore test history',
+    restoreEmpty: 'No restore tests logged yet — add one from the record page',
+    restoreCol: {
+      tested_at: 'Tested on', source: 'Source', tested_by: 'Tested by',
+      result: 'Result', notes: 'Notes',
     },
     notes: 'Notes',
     evidence: 'Evidence',
@@ -430,7 +466,8 @@ const DAY = 86400000;
 const RESTORE_TEST_MAX_DAYS = 180;   // เกินกว่านี้ถือว่าค้างทดสอบ restore
 const TIMELINE_DAYS = 90;
 const COLUMNS = ['backed_up_at', 'source', 'backup_type', 'status', 'performed_by',
-                 'destination', 'size_bytes', 'duration_seconds', 'retention_days', 'last_restore_test_at'];
+                 'destination', 'size_bytes', 'duration_seconds', 'retention_days'];
+const RESTORE_COLUMNS = ['tested_at', 'source', 'tested_by', 'result', 'notes'];
 const NUMERIC_COLS = new Set(['size_bytes', 'duration_seconds', 'retention_days']);
 const PAGE_SIZES = [5, 10, 15, 50, 'all'];
 
@@ -441,7 +478,7 @@ const savedSize = localStorage.getItem('backupDashboardPageSize');
 const initialSize = savedSize === 'all' ? 'all' : Number(savedSize);
 
 const state = {
-  records: [], demo: false, fetchedAt: null, error: null, loading: false,
+  records: [], restoreTests: [], demo: false, fetchedAt: null, error: null, loading: false,
   filters: { q: '', source: '', status: '', from: '', to: '' },
   sort: { key: 'backed_up_at', dir: 'desc' },
   expanded: new Set(),
@@ -502,11 +539,18 @@ function dayKey(iso) {
 // --- คำนวณสถานะรายระบบ -------------------------------------------------------
 // "รอบปกติ" ของแต่ละระบบใช้ค่ามัธยฐานของช่วงห่างจริงระหว่าง backup แต่ละครั้ง
 // จึงไม่ต้องตั้งตารางเวลาไว้ล่วงหน้า และใช้ได้ทั้งงานรายชั่วโมงและรายเดือน
-function buildSystems(records) {
+function buildSystems(records, restoreTests) {
   const groups = new Map();
   for (const r of records) {
     if (!groups.has(r.source)) groups.set(r.source, []);
     groups.get(r.source).push(r);
+  }
+
+  // ผลทดสอบล่าสุดต่อระบบ — เทียบวันที่เอง ไม่พึ่งลำดับที่ส่งมา
+  const latestTest = new Map();
+  for (const test of restoreTests) {
+    const current = latestTest.get(test.source);
+    if (!current || new Date(test.tested_at) > new Date(current.tested_at)) latestTest.set(test.source, test);
   }
 
   const systems = [];
@@ -527,13 +571,13 @@ function buildSystems(records) {
     else if (age > expected * 3) health = 'overdue';
     else if (age > expected * 1.5) health = 'late';
 
-    const testedAt = latest.last_restore_test_at;
+    const lastTest = latestTest.get(source) ?? null;
     const restoreDue =
-      !testedAt ||
-      latest.last_restore_test_result === 'failed' ||
-      Date.now() - new Date(testedAt).getTime() > RESTORE_TEST_MAX_DAYS * DAY;
+      !lastTest ||
+      lastTest.result === 'failed' ||
+      Date.now() - new Date(lastTest.tested_at).getTime() > RESTORE_TEST_MAX_DAYS * DAY;
 
-    systems.push({ source, latest, records: list, expected, health, restoreDue });
+    systems.push({ source, latest, records: list, expected, health, lastTest, restoreDue });
   }
 
   const rank = { failed: 0, overdue: 1, late: 2, ok: 3 };
@@ -610,9 +654,8 @@ function renderCards(systems) {
 
   el.innerHTML = systems.map((s) => {
     const r = s.latest;
-    const test = r.last_restore_test_at
-      ? fmtDate(r.last_restore_test_at) +
-        (r.last_restore_test_result ? ' (' + t().testResult[r.last_restore_test_result] + ')' : '')
+    const test = s.lastTest
+      ? fmtDate(s.lastTest.tested_at) + ' (' + t().testResult[s.lastTest.result] + ')'
       : t().never;
     return `
     <div class="card ${s.health}">
@@ -718,9 +761,6 @@ function renderTable() {
     tbody.innerHTML = `<tr><td colspan="${COLUMNS.length}" class="empty">${esc(t().emptyFiltered)}</td></tr>`;
   } else {
     tbody.innerHTML = pageRows.map((r) => {
-      const test = r.last_restore_test_at
-        ? fmtDate(r.last_restore_test_at) + (r.last_restore_test_result === 'failed' ? ' ⚠' : '')
-        : '—';
       const main = `
         <tr class="row" data-id="${esc(r.id)}">
           <td>${esc(fmtDateTime(r.backed_up_at))}</td>
@@ -732,7 +772,6 @@ function renderTable() {
           <td class="num">${esc(fmtBytes(r.size_bytes))}</td>
           <td class="num">${esc(fmtDuration(r.duration_seconds))}</td>
           <td class="num">${esc(r.retention_days == null ? '—' : t().days(r.retention_days))}</td>
-          <td>${esc(test)}</td>
         </tr>`;
       if (!state.expanded.has(r.id)) return main;
 
@@ -826,6 +865,32 @@ function renderPageSizeOptions() {
   sel.value = String(state.pageSize);
 }
 
+// ตารางประวัติการทดสอบกู้คืน — ไม่มีตัวกรองหรือแบ่งหน้า เพราะรายการน้อยมากโดยธรรมชาติ
+// (ทดสอบกันปีละไม่กี่ครั้งต่อระบบ) ถ้าวันหนึ่งเยอะขึ้นค่อยเพิ่มทีหลัง
+function renderRestoreTests() {
+  document.getElementById('restoreHead').innerHTML =
+    RESTORE_COLUMNS.map((key) => `<th>${esc(t().restoreCol[key])}</th>`).join('');
+
+  const rows = [...state.restoreTests]
+    .sort((a, b) => new Date(b.tested_at) - new Date(a.tested_at));
+
+  const tbody = document.getElementById('restoreBody');
+  if (!rows.length) {
+    tbody.innerHTML =
+      `<tr><td colspan="${RESTORE_COLUMNS.length}" class="empty">${esc(t().restoreEmpty)}</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map((r) => `
+    <tr>
+      <td>${esc(fmtDate(r.tested_at))}</td>
+      <td class="src">${esc(r.source)}</td>
+      <td>${esc(r.tested_by)}</td>
+      <td><span class="pill ${r.result === 'passed' ? 'ok' : 'bad'}">${esc(t().testResult[r.result] ?? r.result)}</span></td>
+      <td class="wrap">${esc(r.notes ?? '—')}</td>
+    </tr>`).join('');
+}
+
 function renderFilterOptions() {
   const sources = [...new Set(state.records.map((r) => r.source))].sort((a, b) => a.localeCompare(b));
   const sourceSel = document.getElementById('fSource');
@@ -840,7 +905,7 @@ function renderFilterOptions() {
 }
 
 function render() {
-  const systems = buildSystems(state.records);
+  const systems = buildSystems(state.records, state.restoreTests);
   applyStaticText();
   renderBanner();
   renderKpis(systems);
@@ -849,6 +914,7 @@ function render() {
   renderFilterOptions();
   renderPageSizeOptions();
   renderTable();
+  renderRestoreTests();
 }
 
 // --- โหลดข้อมูล --------------------------------------------------------------
@@ -856,6 +922,7 @@ async function load() {
   // ไฟล์ที่ export ไว้จะมีข้อมูลฝังมาแล้ว เปิดแบบ file:// ได้โดยไม่ต้องมีเซิร์ฟเวอร์
   if (window.__BACKUP_DATA__) {
     state.records = window.__BACKUP_DATA__.records ?? [];
+    state.restoreTests = window.__BACKUP_DATA__.restoreTests ?? [];
     state.demo = Boolean(window.__BACKUP_DATA__.demo);
     state.fetchedAt = window.__BACKUP_DATA__.exportedAt ?? null;
     render();
@@ -869,6 +936,7 @@ async function load() {
     const body = await res.json();
     if (!res.ok) throw new Error(body.detail ?? body.error ?? ('HTTP ' + res.status));
     state.records = body.records ?? [];
+    state.restoreTests = body.restoreTests ?? [];
     state.demo = Boolean(body.demo);
     state.fetchedAt = body.fetchedAt ?? new Date().toISOString();
     state.error = null;
@@ -883,8 +951,7 @@ async function load() {
 function downloadCsv() {
   const rows = filteredRecords();
   const cols = ['id', 'backed_up_at', 'source', 'performed_by', 'status', 'backup_type', 'destination',
-                'size_bytes', 'duration_seconds', 'retention_days',
-                'last_restore_test_at', 'last_restore_test_result', 'evidence_url', 'notes'];
+                'size_bytes', 'duration_seconds', 'retention_days', 'evidence_url', 'notes'];
   const cell = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))]
     .join(String.fromCharCode(13, 10));

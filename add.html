@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>เพิ่มรายการ backup</title>
+<style>
+  /* token ชุดเดียวกับ index.html — ซ้ำไว้ตั้งใจ เพราะ index.html ต้องเป็นไฟล์เดียวจบ
+     สำหรับ npm run export ถ้าแยก CSS ออกไฟล์กลาง ไฟล์ที่ export จะไม่มีสไตล์ */
+  :root {
+    --bg: #f4f6f9;
+    --surface: #ffffff;
+    --surface-2: #f8fafc;
+    --border: #dfe4ec;
+    --text: #16202e;
+    --muted: #667487;
+    --accent: #2563eb;
+    --ok: #1a8a4a;
+    --ok-bg: #e4f5ea;
+    --warn: #a86400;
+    --warn-bg: #fdf1dc;
+    --bad: #c62b32;
+    --bad-bg: #fdeaea;
+    --shadow: 0 1px 2px rgba(16, 32, 46, .06), 0 1px 8px rgba(16, 32, 46, .04);
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f151d;
+      --surface: #161e29;
+      --surface-2: #1b2532;
+      --border: #2a3646;
+      --text: #e6ecf4;
+      --muted: #93a1b5;
+      --accent: #6ea8ff;
+      --ok: #56d38a;
+      --ok-bg: #14301f;
+      --warn: #f0b348;
+      --warn-bg: #33270e;
+      --bad: #ff8087;
+      --bad-bg: #3a1719;
+      --shadow: none;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", "Sarabun", sans-serif;
+  }
+  h1, h2 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 16px; margin-bottom: 4px; }
+  a { color: var(--accent); }
+
+  .topbar {
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between;
+    padding: 14px 22px; background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .brand p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  button, select, input, textarea {
+    font: inherit; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 11px;
+  }
+  textarea { resize: vertical; min-height: 62px; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .primary {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; padding: 9px 18px;
+  }
+  .primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .btnlink {
+    display: inline-block; text-decoration: none; font-weight: 600;
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text);
+  }
+  .btnlink:hover { border-color: var(--accent); }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 6px 12px; background: var(--surface); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+  main { max-width: 960px; margin: 0 auto; padding: 20px 22px 70px; }
+
+  .banner {
+    padding: 11px 14px; margin-bottom: 18px; border-radius: var(--radius); font-size: 14px;
+    border: 1px solid var(--border); background: var(--warn-bg); color: var(--warn);
+  }
+  .banner.bad { background: var(--bad-bg); color: var(--bad); }
+  .banner.ok  { background: var(--ok-bg);  color: var(--ok); }
+  .banner b { font-weight: 650; }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 20px;
+  }
+  .panel > p.hint { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field.wide { grid-column: 1 / -1; }
+  .field label { font-size: 13px; color: var(--muted); }
+  .field label .req { color: var(--bad); }
+  .field .note { font-size: 12px; color: var(--muted); }
+  .field .note.warn { color: var(--warn); }
+  .field.bad input, .field.bad select, .field.bad textarea { border-color: var(--bad); }
+  .field .err { font-size: 12px; color: var(--bad); }
+  .combo { display: flex; gap: 6px; }
+  .combo input { flex: 1 1 auto; min-width: 0; }
+  .combo select { flex: 0 0 auto; }
+
+  .actions { display: flex; gap: 12px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+  .result { font-size: 14px; }
+  .result.ok  { color: var(--ok); }
+  .result.bad { color: var(--bad); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <h1 data-i18n="title"></h1>
+    <p data-i18n="subtitle"></p>
+  </div>
+  <div class="toolbar">
+    <a class="btnlink" href="." data-i18n="backToDashboard"></a>
+    <div class="seg" role="group" aria-label="language">
+      <button data-lang="th">ไทย</button>
+      <button data-lang="en">EN</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="banner" id="banner" hidden></div>
+
+  <!-- รหัสอยู่แยกด้านบนเพราะทั้งสองฟอร์มใช้ตัวเดียวกัน -->
+  <section class="panel">
+    <h2 data-i18n="authTitle"></h2>
+    <p class="hint" data-i18n="authHint"></p>
+    <div class="grid">
+      <div class="field">
+        <label for="password" data-i18n="passwordLabel"></label>
+        <input type="password" id="password" autocomplete="current-password">
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2 data-i18n="backupTitle"></h2>
+    <p class="hint" data-i18n="backupHint"></p>
+    <form id="backupForm" novalidate>
+      <div class="grid">
+        <div class="field" data-for="backed_up_at">
+          <label for="backedUpAt"><span data-i18n="fBackedUpAt"></span> <span class="req">*</span></label>
+          <input type="datetime-local" id="backedUpAt" required>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="source">
+          <label for="source"><span data-i18n="fSource"></span> <span class="req">*</span></label>
+          <input id="source" list="sourceList" required>
+          <span class="note" id="sourceNote"></span>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="performed_by">
+          <label for="performedBy"><span data-i18n="fPerformedBy"></span> <span class="req">*</span></label>
+          <input id="performedBy" list="performerList" required>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="status">
+          <label for="status"><span data-i18n="fStatus"></span> <span class="req">*</span></label>
+          <select id="status"></select>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="backup_type">
+          <label for="backupType"><span data-i18n="fType"></span> <span class="req">*</span></label>
+          <select id="backupType"></select>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="destination">
+          <label for="destination" data-i18n="fDestination"></label>
+          <input id="destination" list="destinationList">
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="size_bytes">
+          <label for="size" data-i18n="fSize"></label>
+          <div class="combo">
+            <input type="number" id="size" min="0" step="any" inputmode="decimal">
+            <select id="sizeUnit"></select>
+          </div>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="duration_seconds">
+          <label for="duration" data-i18n="fDuration"></label>
+          <div class="combo">
+            <input type="number" id="duration" min="0" step="any" inputmode="decimal">
+            <select id="durationUnit"></select>
+          </div>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="retention_days">
+          <label for="retentionDays" data-i18n="fRetention"></label>
+          <input type="number" id="retentionDays" min="0" step="1" inputmode="numeric">
+          <span class="err"></span>
+        </div>
+
+        <div class="field wide" data-for="evidence_url">
+          <label for="evidenceUrl" data-i18n="fEvidence"></label>
+          <input id="evidenceUrl" data-i18n-ph="fEvidencePh">
+          <span class="err"></span>
+        </div>
+
+        <div class="field wide" data-for="notes">
+          <label for="notes" data-i18n="fNotes"></label>
+          <textarea id="notes"></textarea>
+          <span class="err"></span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="backupSubmit" data-i18n="saveBackup"></button>
+        <span class="result" id="backupResult"></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2 data-i18n="restoreTitle"></h2>
+    <p class="hint" data-i18n="restoreHint"></p>
+    <form id="restoreForm" novalidate>
+      <div class="grid">
+        <div class="field" data-for="tested_at">
+          <label for="testedAt"><span data-i18n="fTestedAt"></span> <span class="req">*</span></label>
+          <input type="date" id="testedAt" required>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="source">
+          <label for="testSource"><span data-i18n="fSource"></span> <span class="req">*</span></label>
+          <input id="testSource" list="sourceList" required>
+          <span class="note" id="testSourceNote"></span>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="tested_by">
+          <label for="testedBy"><span data-i18n="fTestedBy"></span> <span class="req">*</span></label>
+          <input id="testedBy" list="performerList" required>
+          <span class="err"></span>
+        </div>
+
+        <div class="field" data-for="result">
+          <label for="testResult"><span data-i18n="fResult"></span> <span class="req">*</span></label>
+          <select id="testResult"></select>
+          <span class="err"></span>
+        </div>
+
+        <div class="field wide" data-for="notes">
+          <label for="testNotes" data-i18n="fTestNotes"></label>
+          <textarea id="testNotes" data-i18n-ph="fTestNotesPh"></textarea>
+          <span class="err"></span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="restoreSubmit" data-i18n="saveRestore"></button>
+        <span class="result" id="restoreResult"></span>
+      </div>
+    </form>
+  </section>
+
+  <datalist id="sourceList"></datalist>
+  <datalist id="performerList"></datalist>
+  <datalist id="destinationList"></datalist>
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// ข้อความทั้งหมดรวมไว้ที่เดียว เหมือน index.html
+// ---------------------------------------------------------------------------
+const T = {
+  th: {
+    locale: 'th-TH',
+    title: 'เพิ่มรายการ backup',
+    subtitle: 'บันทึกงาน backup ที่ทำมือ และผลการทดสอบกู้คืน',
+    backToDashboard: '‹ กลับหน้าหลัก',
+
+    demoBanner: '<b>โหมดตัวอย่าง</b> — บันทึกได้ แต่ข้อมูลอยู่แค่ในหน่วยความจำของเซิร์ฟเวอร์ <b>หายเมื่อรีสตาร์ท</b> ยังไม่ได้ตั้ง DATABASE_URL ใน .env',
+    disabledNoPassword: '<b>หน้านี้ปิดอยู่</b> — ต้องตั้ง WRITE_PASSWORD ในไฟล์ .env บนเซิร์ฟเวอร์ก่อน แล้วรีสตาร์ทเซอร์วิส',
+    disabledNoWriteUrl: '<b>หน้านี้ปิดอยู่</b> — ตั้ง WRITE_PASSWORD แล้ว แต่ยังขาด DATABASE_URL_WRITE (role ที่ insert ได้) ในไฟล์ .env',
+    loadFailed: (detail) => '<b>โหลดรายชื่อระบบไม่สำเร็จ</b> — ' + detail + ' (ยังกรอกได้ แต่จะไม่มีรายการให้เลือก)',
+
+    authTitle: 'รหัสสำหรับบันทึก',
+    authHint: 'รหัสตัวเดียวใช้ร่วมกันทั้งทีม ตั้งไว้ในไฟล์ .env บนเซิร์ฟเวอร์ เบราว์เซอร์จำไว้ให้ กรอกครั้งเดียวต่อเครื่อง',
+    passwordLabel: 'รหัส',
+
+    backupTitle: 'บันทึกการ backup',
+    backupHint: 'ใช้กับงานที่ทำมือ ถ้าเป็นงานที่มีสคริปต์อยู่แล้ว ให้สคริปต์เขียน INSERT เองจะแม่นกว่า (ดู SETUP.md)',
+    restoreTitle: 'บันทึกผลการทดสอบกู้คืน',
+    restoreHint: 'backup ที่กู้คืนไม่ได้เท่ากับไม่มี backup — บันทึกทุกครั้งที่ทดสอบ เก็บเป็นประวัติแยกไม่ทับของเก่า',
+
+    fBackedUpAt: 'backup เมื่อไหร่',
+    fSource: 'backup อะไร (ระบบ / ข้อมูล)',
+    fPerformedBy: 'ใครทำ',
+    fStatus: 'สถานะ',
+    fType: 'ประเภท',
+    fDestination: 'เก็บไว้ที่ไหน',
+    fSize: 'ขนาดไฟล์',
+    fDuration: 'ใช้เวลา',
+    fRetention: 'เก็บรักษา (วัน)',
+    fEvidence: 'ลิงก์/พาธหลักฐาน',
+    fEvidencePh: 'เช่นไฟล์ log หรือลิงก์รายงาน',
+    fNotes: 'หมายเหตุ',
+
+    fTestedAt: 'ทดสอบเมื่อไหร่',
+    fTestedBy: 'ใครทดสอบ',
+    fResult: 'ผล',
+    fTestNotes: 'หมายเหตุ',
+    fTestNotesPh: 'ทดสอบอย่างไร เจออะไร เช่น restore ลง staging แล้วเทียบจำนวนแถว',
+
+    saveBackup: 'บันทึกการ backup',
+    saveRestore: 'บันทึกผลทดสอบ',
+    saving: 'กำลังบันทึก…',
+
+    savedBackup: (source, when) => 'บันทึกแล้ว: ' + source + ' — ' + when,
+    savedRestore: (source, when) => 'บันทึกผลทดสอบแล้ว: ' + source + ' — ' + when,
+    savedDemo: ' (โหมดตัวอย่าง หายเมื่อรีสตาร์ท)',
+
+    newSourceNote: 'ชื่อนี้ยังไม่มีในระบบ — ถ้าไม่ได้ตั้งใจเพิ่มระบบใหม่ ตรวจการสะกดอีกครั้ง',
+    knownSourceNote: '',
+
+    errRequired: 'ต้องกรอกช่องนี้',
+    errBadPassword: 'รหัสไม่ถูกต้อง',
+    errTooMany: 'กรอกรหัสผิดหลายครั้งเกินไป — รอ 5 นาทีแล้วลองใหม่',
+    errWritesDisabled: 'หน้านี้ปิดอยู่ ดูข้อความด้านบน',
+    errNetwork: (detail) => 'บันทึกไม่สำเร็จ: ' + detail,
+
+    status: { success: 'สำเร็จ', failed: 'ล้มเหลว', running: 'กำลังทำ' },
+    type: { full: 'เต็ม', incremental: 'เพิ่มเติม', differential: 'ส่วนต่าง', manual: 'ทำมือ' },
+    result: { passed: 'ผ่าน', failed: 'ไม่ผ่าน' },
+    sizeUnit: { MB: 'MB', GB: 'GB', TB: 'TB' },
+    durationUnit: { s: 'วินาที', m: 'นาที', h: 'ชั่วโมง' },
+  },
+
+  en: {
+    locale: 'en-GB',
+    title: 'Add backup record',
+    subtitle: 'Log backups done by hand, and restore test results',
+    backToDashboard: '‹ Back to dashboard',
+
+    demoBanner: '<b>Demo mode</b> — saving works, but rows live in the server’s memory and are <b>lost on restart</b>. DATABASE_URL is not set in .env',
+    disabledNoPassword: '<b>This page is disabled</b> — set WRITE_PASSWORD in .env on the server and restart the service',
+    disabledNoWriteUrl: '<b>This page is disabled</b> — WRITE_PASSWORD is set but DATABASE_URL_WRITE (a role that can insert) is missing from .env',
+    loadFailed: (detail) => '<b>Could not load the system list</b> — ' + detail + ' (you can still type, but there will be no suggestions)',
+
+    authTitle: 'Write password',
+    authHint: 'One password shared by the whole team, set in .env on the server. Your browser remembers it, so you only type it once per machine',
+    passwordLabel: 'Password',
+
+    backupTitle: 'Log a backup',
+    backupHint: 'For backups done by hand. If a script already runs the job, having the script INSERT its own row is more accurate (see SETUP.md)',
+    restoreTitle: 'Log a restore test',
+    restoreHint: 'A backup you cannot restore is not a backup — log every test. Each one is kept as its own row, never overwriting the last',
+
+    fBackedUpAt: 'When it ran',
+    fSource: 'What was backed up (source)',
+    fPerformedBy: 'Performed by',
+    fStatus: 'Status',
+    fType: 'Type',
+    fDestination: 'Stored at',
+    fSize: 'Size',
+    fDuration: 'Duration',
+    fRetention: 'Retention (days)',
+    fEvidence: 'Evidence link / path',
+    fEvidencePh: 'a log file or a link to the report',
+    fNotes: 'Notes',
+
+    fTestedAt: 'Tested on',
+    fTestedBy: 'Tested by',
+    fResult: 'Result',
+    fTestNotes: 'Notes',
+    fTestNotesPh: 'How it was tested and what you found',
+
+    saveBackup: 'Save backup',
+    saveRestore: 'Save restore test',
+    saving: 'Saving…',
+
+    savedBackup: (source, when) => 'Saved: ' + source + ' — ' + when,
+    savedRestore: (source, when) => 'Restore test saved: ' + source + ' — ' + when,
+    savedDemo: ' (demo mode — lost on restart)',
+
+    newSourceNote: 'This name is not in the system yet — unless you meant to add a new one, check the spelling',
+    knownSourceNote: '',
+
+    errRequired: 'This field is required',
+    errBadPassword: 'Wrong password',
+    errTooMany: 'Too many wrong attempts — wait 5 minutes and try again',
+    errWritesDisabled: 'This page is disabled, see the message above',
+    errNetwork: (detail) => 'Could not save: ' + detail,
+
+    status: { success: 'Success', failed: 'Failed', running: 'Running' },
+    type: { full: 'Full', incremental: 'Incremental', differential: 'Differential', manual: 'Manual' },
+    result: { passed: 'Passed', failed: 'Failed' },
+    sizeUnit: { MB: 'MB', GB: 'GB', TB: 'TB' },
+    durationUnit: { s: 'seconds', m: 'minutes', h: 'hours' },
+  },
+};
+
+const STATUSES = ['success', 'failed', 'running'];
+const BACKUP_TYPES = ['full', 'incremental', 'differential', 'manual'];
+const RESULTS = ['passed', 'failed'];
+const SIZE_UNITS = { MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4 };
+const DURATION_UNITS = { s: 1, m: 60, h: 3600 };
+
+const LS = {
+  lang: 'backupDashboardLang',
+  password: 'backupDashboardWritePassword',
+  performer: 'backupDashboardPerformer',
+};
+
+let lang = localStorage.getItem(LS.lang) === 'en' ? 'en' : 'th';
+const t = () => T[lang];
+
+const state = { suggestions: { source: [], performed_by: [], destination: [] }, writesEnabled: true, demo: false, banner: null };
+
+const $ = (id) => document.getElementById(id);
+const ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ENTITIES[c]);
+
+const fmtDateTime = (iso) =>
+  new Intl.DateTimeFormat(t().locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+const fmtDate = (iso) => new Intl.DateTimeFormat(t().locale, { dateStyle: 'medium' }).format(new Date(iso));
+
+// --- เรนเดอร์ข้อความและตัวเลือก ------------------------------------------------
+function fillSelect(el, keys, dict, selected) {
+  el.innerHTML = keys.map((k) => `<option value="${k}">${esc(dict[k])}</option>`).join('');
+  if (selected) el.value = selected;
+}
+
+function applyStaticText() {
+  document.documentElement.lang = lang;
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t()[el.dataset.i18n];
+  for (const el of document.querySelectorAll('[data-i18n-ph]')) el.placeholder = t()[el.dataset.i18nPh];
+  for (const el of document.querySelectorAll('[data-lang]')) {
+    el.setAttribute('aria-pressed', String(el.dataset.lang === lang));
+  }
+
+  // เก็บค่าที่เลือกไว้ก่อนสร้าง option ใหม่ ไม่ให้ผู้ใช้เสียสิ่งที่กรอกไปตอนสลับภาษา
+  fillSelect($('status'), STATUSES, t().status, $('status').value || 'success');
+  fillSelect($('backupType'), BACKUP_TYPES, t().type, $('backupType').value || 'full');
+  fillSelect($('testResult'), RESULTS, t().result, $('testResult').value || 'passed');
+  fillSelect($('sizeUnit'), Object.keys(SIZE_UNITS), t().sizeUnit, $('sizeUnit').value || 'GB');
+  fillSelect($('durationUnit'), Object.keys(DURATION_UNITS), t().durationUnit, $('durationUnit').value || 'm');
+
+  renderBanner();
+  checkSourceName('source', 'sourceNote');
+  checkSourceName('testSource', 'testSourceNote');
+}
+
+function renderBanner() {
+  const el = $('banner');
+  const kind = state.banner;
+  if (!kind) { el.hidden = true; return; }
+  el.hidden = false;
+  el.className = 'banner' + (kind.startsWith('disabled') ? ' bad' : '');
+  el.innerHTML = typeof t()[kind] === 'function' ? t()[kind](esc(state.bannerDetail)) : t()[kind];
+}
+
+function renderDatalists() {
+  const fill = (id, values) =>
+    ($(id).innerHTML = values.map((v) => `<option value="${esc(v)}"></option>`).join(''));
+  fill('sourceList', state.suggestions.source);
+  fill('performerList', state.suggestions.performed_by);
+  fill('destinationList', state.suggestions.destination);
+}
+
+// เตือนแบบไม่ขัดขวาง ถ้าชื่อระบบไม่ตรงกับที่มีอยู่ — สะกดไม่ตรงกับครั้งก่อนแล้ว
+// หน้า dashboard จะนับเป็นสองระบบ แล้วขึ้นสีแดงว่าขาด backup ทั้งคู่
+function checkSourceName(inputId, noteId) {
+  const value = $(inputId).value.trim();
+  const known = state.suggestions.source;
+  const isNew = value !== '' && known.length > 0 && !known.includes(value);
+  const note = $(noteId);
+  note.textContent = isNew ? t().newSourceNote : '';
+  note.className = isNew ? 'note warn' : 'note';
+}
+
+function setWritesEnabled(enabled) {
+  state.writesEnabled = enabled;
+  for (const id of ['backupSubmit', 'restoreSubmit']) $(id).disabled = !enabled;
+}
+
+// --- อ่านค่าจากฟอร์ม ---------------------------------------------------------
+const trimmed = (id) => $(id).value.trim();
+const orNull = (id) => trimmed(id) || null;
+
+// datetime-local / date ไม่มีโซนเวลาติดมา — new Date() ตีความเป็นเวลาท้องถิ่น
+// ซึ่งตรงกับที่ผู้ใช้เห็นบนหน้าจอ แล้วค่อยแปลงเป็น ISO ก่อนส่ง
+function localToIso(value, timeSuffix = '') {
+  if (!value) return null;
+  const date = new Date(value + timeSuffix);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function scaledInteger(valueId, unitId, units) {
+  const raw = trimmed(valueId);
+  if (raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return NaN;      // ให้เซิร์ฟเวอร์ปฏิเสธและชี้ช่องที่ผิด
+  return Math.round(n * units[$(unitId).value]);
+}
+
+function clearErrors(form) {
+  for (const field of form.querySelectorAll('.field')) {
+    field.classList.remove('bad');
+    field.querySelector('.err').textContent = '';
+  }
+}
+
+function showFieldError(form, field, message) {
+  const el = form.querySelector(`.field[data-for="${field}"]`);
+  if (!el) return false;
+  el.classList.add('bad');
+  el.querySelector('.err').textContent = message;
+  el.querySelector('input, select, textarea')?.focus();
+  return true;
+}
+
+// --- ส่งข้อมูล --------------------------------------------------------------
+async function submitTo(url, payload, form, resultEl, onSuccess) {
+  clearErrors(form);
+  resultEl.textContent = '';
+  resultEl.className = 'result';
+
+  const password = $('password').value;
+  const button = form.querySelector('button[type="submit"]');
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = t().saving;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-write-password': password },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+
+    if (res.ok) {
+      localStorage.setItem(LS.password, password);
+      resultEl.className = 'result ok';
+      resultEl.textContent = onSuccess(body.saved) + (body.demo ? t().savedDemo : '');
+      // รายชื่อระบบอาจมีค่าใหม่เพิ่มเข้ามา ดึงใหม่เพื่อให้ dropdown ทันสมัย
+      loadSuggestions();
+      return;
+    }
+
+    resultEl.className = 'result bad';
+    if (res.status === 401) resultEl.textContent = t().errBadPassword;
+    else if (res.status === 429) resultEl.textContent = t().errTooMany;
+    else if (res.status === 403) resultEl.textContent = t().errWritesDisabled;
+    else if (body.error === 'invalid_field' && showFieldError(form, body.field, body.detail)) {
+      resultEl.textContent = '';
+    } else {
+      resultEl.textContent = t().errNetwork(body.detail ?? body.error ?? ('HTTP ' + res.status));
+    }
+  } catch (err) {
+    resultEl.className = 'result bad';
+    resultEl.textContent = t().errNetwork(err.message);
+  } finally {
+    button.textContent = label;
+    button.disabled = !state.writesEnabled;
+  }
+}
+
+$('backupForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const payload = {
+    backed_up_at: localToIso(trimmed('backedUpAt')),
+    source: trimmed('source'),
+    performed_by: trimmed('performedBy'),
+    status: $('status').value,
+    backup_type: $('backupType').value,
+    destination: orNull('destination'),
+    size_bytes: scaledInteger('size', 'sizeUnit', SIZE_UNITS),
+    duration_seconds: scaledInteger('duration', 'durationUnit', DURATION_UNITS),
+    retention_days: trimmed('retentionDays') === '' ? null : Number(trimmed('retentionDays')),
+    evidence_url: orNull('evidenceUrl'),
+    notes: orNull('notes'),
+  };
+
+  submitTo('api/backups', payload, $('backupForm'), $('backupResult'), (saved) => {
+    localStorage.setItem(LS.performer, payload.performed_by);
+    // เคลียร์แค่ช่องที่เปลี่ยนทุกรายการ — คนมักลงหลายรายการติดกันด้วยระบบและคนเดิม
+    for (const id of ['size', 'duration', 'evidenceUrl', 'notes']) $(id).value = '';
+    $('backedUpAt').value = nowForInput();
+    return t().savedBackup(saved.source, fmtDateTime(saved.backed_up_at));
+  });
+});
+
+$('restoreForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const payload = {
+    tested_at: localToIso(trimmed('testedAt'), 'T00:00:00'),
+    source: trimmed('testSource'),
+    tested_by: trimmed('testedBy'),
+    result: $('testResult').value,
+    notes: orNull('testNotes'),
+  };
+
+  submitTo('api/restore-tests', payload, $('restoreForm'), $('restoreResult'), (saved) => {
+    localStorage.setItem(LS.performer, payload.tested_by);
+    $('testNotes').value = '';
+    return t().savedRestore(saved.source, fmtDate(saved.tested_at));
+  });
+});
+
+// --- โหลดค่าเริ่มต้น ---------------------------------------------------------
+// input datetime-local ต้องได้รูปแบบ YYYY-MM-DDTHH:mm ตามเวลาท้องถิ่น ไม่ใช่ ISO ที่เป็น UTC
+function nowForInput() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function todayForInput() {
+  return nowForInput().slice(0, 10);
+}
+
+async function loadSuggestions() {
+  try {
+    const res = await fetch('api/suggestions', { cache: 'no-store' });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail ?? body.error ?? ('HTTP ' + res.status));
+
+    state.suggestions = {
+      source: body.source ?? [],
+      performed_by: body.performed_by ?? [],
+      destination: body.destination ?? [],
+    };
+    state.demo = Boolean(body.demo);
+    setWritesEnabled(Boolean(body.writesEnabled));
+
+    state.banner =
+      !body.writesEnabled
+        ? (body.writeDisabledReason === 'no_password' ? 'disabledNoPassword' : 'disabledNoWriteUrl')
+        : body.demo ? 'demoBanner' : null;
+  } catch (err) {
+    // ดึงรายชื่อไม่ได้ก็ยังกรอกได้ แค่ไม่มี dropdown ช่วย — บอกให้รู้แต่ไม่บล็อก
+    state.banner = 'loadFailed';
+    state.bannerDetail = err.message;
+  }
+  renderDatalists();
+  renderBanner();
+  checkSourceName('source', 'sourceNote');
+  checkSourceName('testSource', 'testSourceNote');
+}
+
+for (const btn of document.querySelectorAll('[data-lang]')) {
+  btn.addEventListener('click', () => {
+    lang = btn.dataset.lang;
+    localStorage.setItem(LS.lang, lang);
+    applyStaticText();
+  });
+}
+
+$('source').addEventListener('input', () => checkSourceName('source', 'sourceNote'));
+$('testSource').addEventListener('input', () => checkSourceName('testSource', 'testSourceNote'));
+
+$('password').value = localStorage.getItem(LS.password) ?? '';
+$('performedBy').value = localStorage.getItem(LS.performer) ?? '';
+$('testedBy').value = localStorage.getItem(LS.performer) ?? '';
+$('backedUpAt').value = nowForInput();
+$('testedAt').value = todayForInput();
+
+applyStaticText();
+loadSuggestions();
+</script>
+</body>
+</html>
