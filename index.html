@@ -143,6 +143,14 @@
   .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
   .filters input[type="search"] { min-width: 220px; flex: 1 1 240px; }
   .filters .count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .filters .daterange { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .filters .daterange input { font-size: 13px; padding: 5px 8px; }
+  /* ช่อง date แสดงรูปแบบตามภาษาของเบราว์เซอร์ (มักเป็น mm/dd/yyyy) ป้ายนี้จึงย้ำวันที่
+     ด้วยรูปแบบภาษาที่หน้าเว็บใช้อยู่ กันอ่านสลับเดือนกับวัน */
+  .dateEcho {
+    font-size: 12px; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 99px; padding: 3px 10px; white-space: nowrap;
+  }
 
   .tablewrap { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
@@ -233,8 +241,9 @@
         <input type="search" id="q" data-i18n-ph="searchPh">
         <select id="fSource"></select>
         <select id="fStatus"></select>
-        <input type="date" id="fFrom" aria-label="from">
-        <input type="date" id="fTo" aria-label="to">
+        <label class="daterange"><span data-i18n="dateFrom"></span><input type="date" id="fFrom"></label>
+        <label class="daterange"><span data-i18n="dateTo"></span><input type="date" id="fTo"></label>
+        <span class="dateEcho" id="dateEcho" hidden></span>
         <button id="clearBtn" data-i18n="clear"></button>
         <button id="csvBtn" data-i18n="exportCsv"></button>
         <select id="pageSize" aria-label="rows per page"></select>
@@ -298,6 +307,11 @@ const T = {
     searchPh: 'ค้นหา ระบบ / คนทำ / ที่เก็บ / หมายเหตุ…',
     allSources: 'ทุกระบบ',
     allStatuses: 'ทุกสถานะ',
+    dateFrom: 'ตั้งแต่',
+    dateTo: 'ถึง',
+    dateBoth: (from, to) => from + ' – ' + to,
+    dateFromOnly: (from) => 'ตั้งแต่ ' + from,
+    dateToOnly: (to) => 'ถึง ' + to,
     clear: 'ล้างตัวกรอง',
     exportCsv: 'ดาวน์โหลด CSV',
     countLabel: (n, all) => 'แสดง ' + n + ' จาก ' + all + ' รายการ',
@@ -373,6 +387,11 @@ const T = {
     searchPh: 'Search source / person / destination / notes…',
     allSources: 'All systems',
     allStatuses: 'All statuses',
+    dateFrom: 'From',
+    dateTo: 'To',
+    dateBoth: (from, to) => from + ' – ' + to,
+    dateFromOnly: (from) => 'From ' + from,
+    dateToOnly: (to) => 'To ' + to,
     clear: 'Clear filters',
     exportCsv: 'Download CSV',
     countLabel: (n, all) => 'Showing ' + n + ' of ' + all,
@@ -738,7 +757,22 @@ function renderTable() {
     ? t().countRange(start + 1, start + pageRows.length, rows.length)
     : t().countLabel(0, state.records.length);
 
+  renderDateEcho();
   renderPager(totalPages);
+}
+
+// ย้ำช่วงวันที่ที่เลือกด้วยรูปแบบของภาษาที่หน้าเว็บใช้อยู่ — ช่อง <input type="date">
+// แสดงผลตามภาษาของเบราว์เซอร์ ไม่ใช่ของหน้าเว็บ คนอ่านจึงสลับวันกับเดือนได้ง่าย
+function renderDateEcho() {
+  const el = document.getElementById('dateEcho');
+  const { from, to } = state.filters;
+  if (!from && !to) { el.hidden = true; el.textContent = ''; return; }
+
+  const day = (value) => fmtDate(value + 'T00:00:00');
+  el.textContent = from && to
+    ? t().dateBoth(day(from), day(to))
+    : from ? t().dateFromOnly(day(from)) : t().dateToOnly(day(to));
+  el.hidden = false;
 }
 
 // เลขหน้าที่จะแสดง: หน้าแรก หน้าสุดท้าย และหน้ารอบๆ ที่อยู่ตอนนี้
