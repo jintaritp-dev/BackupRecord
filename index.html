@@ -162,6 +162,16 @@
   .detail dd { margin: 0; overflow-wrap: anywhere; }
   .empty { padding: 34px; text-align: center; color: var(--muted); }
 
+  .pager {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center;
+    padding: 12px 14px; border-top: 1px solid var(--border); background: var(--surface-2);
+  }
+  .pager button { padding: 5px 10px; min-width: 36px; font-variant-numeric: tabular-nums; }
+  .pager button[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pager button:disabled { opacity: .4; cursor: default; }
+  .pager .gap { color: var(--muted); padding: 0 2px; }
+  .pager .info { font-size: 12px; color: var(--muted); margin-left: 10px; font-variant-numeric: tabular-nums; }
+
   @media (max-width: 640px) {
     .topbar { padding: 12px 14px; }
     main { padding: 16px 14px 50px; }
@@ -225,6 +235,7 @@
         <input type="date" id="fTo" aria-label="to">
         <button id="clearBtn" data-i18n="clear"></button>
         <button id="csvBtn" data-i18n="exportCsv"></button>
+        <select id="pageSize" aria-label="rows per page"></select>
         <span class="count" id="count"></span>
       </div>
       <div class="tablewrap">
@@ -233,6 +244,7 @@
           <tbody id="tbody"></tbody>
         </table>
       </div>
+      <div class="pager" id="pager" hidden></div>
     </div>
   </section>
 </main>
@@ -287,7 +299,17 @@ const T = {
     clear: 'ล้างตัวกรอง',
     exportCsv: 'ดาวน์โหลด CSV',
     countLabel: (n, all) => 'แสดง ' + n + ' จาก ' + all + ' รายการ',
+    countRange: (from, to, all) => 'แสดง ' + from + '–' + to + ' จาก ' + all + ' รายการ',
     emptyFiltered: 'ไม่พบรายการที่ตรงกับตัวกรอง',
+
+    perPage: (n) => n + ' แถว/หน้า',
+    allRows: 'ทั้งหมด',
+    first: '«',
+    prev: '‹',
+    next: '›',
+    last: '»',
+    pageInfo: (page, total) => 'หน้า ' + page + ' จาก ' + total,
+    goToPage: (n) => 'ไปหน้า ' + n,
 
     col: {
       backed_up_at: 'วันเวลา', source: 'ระบบ / ข้อมูล', backup_type: 'ประเภท', status: 'สถานะ',
@@ -350,7 +372,17 @@ const T = {
     clear: 'Clear filters',
     exportCsv: 'Download CSV',
     countLabel: (n, all) => 'Showing ' + n + ' of ' + all,
+    countRange: (from, to, all) => 'Showing ' + from + '–' + to + ' of ' + all,
     emptyFiltered: 'No records match these filters',
+
+    perPage: (n) => n + ' rows/page',
+    allRows: 'All',
+    first: '«',
+    prev: '‹',
+    next: '›',
+    last: '»',
+    pageInfo: (page, total) => 'Page ' + page + ' of ' + total,
+    goToPage: (n) => 'Go to page ' + n,
 
     col: {
       backed_up_at: 'When', source: 'Source', backup_type: 'Type', status: 'Status',
@@ -375,13 +407,21 @@ const TIMELINE_DAYS = 90;
 const COLUMNS = ['backed_up_at', 'source', 'backup_type', 'status', 'performed_by',
                  'destination', 'size_bytes', 'duration_seconds', 'retention_days', 'last_restore_test_at'];
 const NUMERIC_COLS = new Set(['size_bytes', 'duration_seconds', 'retention_days']);
+const PAGE_SIZES = [5, 10, 15, 50, 'all'];
 
 let lang = localStorage.getItem('backupDashboardLang') === 'en' ? 'en' : 'th';
+
+// จำจำนวนแถวต่อหน้าไว้ เพราะเป็นความชอบส่วนตัวของคนดู ไม่ใช่สถานะของข้อมูล
+const savedSize = localStorage.getItem('backupDashboardPageSize');
+const initialSize = savedSize === 'all' ? 'all' : Number(savedSize);
+
 const state = {
   records: [], demo: false, fetchedAt: null, error: null, loading: false,
   filters: { q: '', source: '', status: '', from: '', to: '' },
   sort: { key: 'backed_up_at', dir: 'desc' },
   expanded: new Set(),
+  pageSize: PAGE_SIZES.includes(initialSize) ? initialSize : 15,
+  page: 1,
 };
 const t = () => T[lang];
 
@@ -631,6 +671,16 @@ function filteredRecords() {
 function renderTable() {
   const rows = filteredRecords();
 
+  // แบ่งหน้า: 'all' คือไม่แบ่ง ส่วนเลขอื่นตัดเป็นช่วงตามหน้าที่เลือก
+  const showAll = state.pageSize === 'all';
+  const perPage = showAll ? Math.max(rows.length, 1) : state.pageSize;
+  const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
+  // กรองแล้วแถวอาจเหลือน้อยกว่าหน้าที่ค้างอยู่ — ดึงกลับมาให้อยู่ในช่วงที่มีจริง
+  if (state.page > totalPages) state.page = totalPages;
+  if (state.page < 1) state.page = 1;
+  const start = showAll ? 0 : (state.page - 1) * perPage;
+  const pageRows = showAll ? rows : rows.slice(start, start + perPage);
+
   document.getElementById('thead').innerHTML = COLUMNS.map((key) => {
     const active = state.sort.key === key;
     const arrow = active ? (state.sort.dir === 'asc' ? '▲' : '▼') : '';
@@ -642,7 +692,7 @@ function renderTable() {
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="${COLUMNS.length}" class="empty">${esc(t().emptyFiltered)}</td></tr>`;
   } else {
-    tbody.innerHTML = rows.map((r) => {
+    tbody.innerHTML = pageRows.map((r) => {
       const test = r.last_restore_test_at
         ? fmtDate(r.last_restore_test_at) + (r.last_restore_test_result === 'failed' ? ' ⚠' : '')
         : '—';
@@ -678,7 +728,55 @@ function renderTable() {
     }).join('');
   }
 
-  document.getElementById('count').textContent = t().countLabel(rows.length, state.records.length);
+  document.getElementById('count').textContent = rows.length
+    ? t().countRange(start + 1, start + pageRows.length, rows.length)
+    : t().countLabel(0, state.records.length);
+
+  renderPager(totalPages);
+}
+
+// เลขหน้าที่จะแสดง: หน้าแรก หน้าสุดท้าย และหน้ารอบๆ ที่อยู่ตอนนี้
+// รายการอาจมีหลายพันแถว จึงไม่พ่นปุ่มออกมาทุกหน้า
+function pageWindow(current, total) {
+  const wanted = new Set([1, total, current - 1, current, current + 1]);
+  if (current <= 3) [2, 3, 4].forEach((n) => wanted.add(n));
+  if (current >= total - 2) [total - 1, total - 2, total - 3].forEach((n) => wanted.add(n));
+  return [...wanted].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
+}
+
+function renderPager(totalPages) {
+  const el = document.getElementById('pager');
+  if (state.pageSize === 'all' || totalPages <= 1) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+
+  const page = state.page;
+  const step = (target, label, disabled) =>
+    `<button data-page="${target}"${disabled ? ' disabled' : ''}>${esc(label)}</button>`;
+
+  const numbers = [];
+  let previous = 0;
+  for (const n of pageWindow(page, totalPages)) {
+    if (n - previous > 1) numbers.push('<span class="gap">…</span>');
+    numbers.push(
+      `<button data-page="${n}" title="${esc(t().goToPage(n))}"` +
+      `${n === page ? ' aria-current="page"' : ''}>${n}</button>`);
+    previous = n;
+  }
+
+  el.innerHTML =
+    step(1, t().first, page === 1) +
+    step(page - 1, t().prev, page === 1) +
+    numbers.join('') +
+    step(page + 1, t().next, page === totalPages) +
+    step(totalPages, t().last, page === totalPages) +
+    `<span class="info">${esc(t().pageInfo(page, totalPages))}</span>`;
+}
+
+function renderPageSizeOptions() {
+  const sel = document.getElementById('pageSize');
+  sel.innerHTML = PAGE_SIZES.map((n) =>
+    `<option value="${n}">${esc(n === 'all' ? t().allRows : t().perPage(n))}</option>`).join('');
+  sel.value = String(state.pageSize);
 }
 
 function renderFilterOptions() {
@@ -702,6 +800,7 @@ function render() {
   renderCards(systems);
   renderTimeline(systems);
   renderFilterOptions();
+  renderPageSizeOptions();
   renderTable();
 }
 
@@ -769,6 +868,7 @@ for (const btn of document.querySelectorAll('[data-lang]')) {
 const bindFilter = (id, key, event) => {
   document.getElementById(id).addEventListener(event, (e) => {
     state.filters[key] = e.target.value;
+    state.page = 1;              // ชุดผลลัพธ์เปลี่ยน หน้าเดิมจึงไม่มีความหมายอีกต่อไป
     renderTable();
   });
 };
@@ -780,8 +880,25 @@ bindFilter('fTo', 'to', 'change');
 
 document.getElementById('clearBtn').addEventListener('click', () => {
   state.filters = { q: '', source: '', status: '', from: '', to: '' };
+  state.page = 1;
   for (const id of ['q', 'fSource', 'fStatus', 'fFrom', 'fTo']) document.getElementById(id).value = '';
   renderTable();
+});
+
+document.getElementById('pageSize').addEventListener('change', (e) => {
+  state.pageSize = e.target.value === 'all' ? 'all' : Number(e.target.value);
+  state.page = 1;
+  localStorage.setItem('backupDashboardPageSize', String(state.pageSize));
+  renderTable();
+});
+
+document.getElementById('pager').addEventListener('click', (e) => {
+  const target = e.target.closest('button[data-page]');
+  if (!target || target.disabled) return;
+  state.page = Number(target.dataset.page);
+  renderTable();
+  // ผู้ใช้อยู่ท้ายตารางตอนกดเปลี่ยนหน้า — เลื่อนกลับไปหัวตารางให้เห็นแถวแรกของหน้าใหม่
+  document.getElementById('thead').scrollIntoView({ block: 'nearest' });
 });
 
 document.getElementById('thead').addEventListener('click', (e) => {
@@ -791,6 +908,7 @@ document.getElementById('thead').addEventListener('click', (e) => {
   state.sort = key === state.sort.key
     ? { key, dir: state.sort.dir === 'asc' ? 'desc' : 'asc' }
     : { key, dir: 'desc' };
+  state.page = 1;               // เรียงใหม่แล้วแถวย้ายไปหมด กลับไปหน้าแรกจึงตรงกับที่ผู้ใช้คาด
   renderTable();
 });
 
