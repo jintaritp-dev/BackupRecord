@@ -346,19 +346,30 @@ async function handleWrite(req, res, insert) {
 
   if (!WRITES_ENABLED) return reject(403, { error: 'writes_disabled', reason: WRITE_DISABLED_REASON });
 
-  if (PASSWORD_REQUIRED) {
-    const ip = clientIp(req);
-    if (isLockedOut(ip)) return reject(429, { error: 'too_many_attempts' });
+  const ip = clientIp(req);
+  if (PASSWORD_REQUIRED && isLockedOut(ip)) return reject(429, { error: 'too_many_attempts' });
 
-    if (!passwordMatches(req.headers['x-write-password'])) {
+  // รหัสเดินทางมาใน body ไม่ใช่ header เพราะค่า header รับได้แค่ ISO-8859-1
+  // รหัสที่มีอักษรไทยจะทำให้ fetch ในเบราว์เซอร์โยน error ทิ้งก่อนส่งออกมาเลย
+  // จึงต้องอ่าน body ก่อนตรวจรหัส — ปลอดภัยเพราะมีเพดาน 32 KB คุมอยู่แล้ว
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return json(res, err.httpStatus ?? 400, { error: err.message });
+  }
+
+  if (PASSWORD_REQUIRED) {
+    if (!passwordMatches(body?.password)) {
       noteFailure(ip);
-      return reject(401, { error: 'bad_password' });
+      return json(res, 401, { error: 'bad_password' });
     }
     failures.delete(ip);   // รหัสถูกแล้ว ล้างตัวนับของ IP นี้
   }
 
   try {
-    const saved = await insert(await readJsonBody(req));
+    // ตัว insert อ่านเฉพาะฟิลด์ที่รู้จัก คีย์ password ที่ติดมาจึงถูกมองข้ามไปเอง
+    const saved = await insert(body);
     return json(res, 201, { saved, demo: DEMO });
   } catch (err) {
     if (err instanceof FieldError) {

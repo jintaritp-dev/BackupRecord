@@ -554,10 +554,12 @@ async function submitTo(url, payload, form, resultEl, onSuccess) {
   button.textContent = t().saving;
 
   try {
+    // รหัสส่งไปใน body ไม่ใช่ header — ค่า header รับได้แค่ ISO-8859-1
+    // รหัสที่มีอักษรไทยจะทำให้ fetch โยน error ทิ้งก่อนส่งออกไปเลย
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-write-password': password },
-      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state.passwordRequired ? { ...payload, password } : payload),
     });
     const body = await res.json().catch(() => ({}));
 
