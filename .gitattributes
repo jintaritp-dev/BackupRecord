@@ -1,0 +1,3 @@
+# โปรเจกต์นี้ถูก deploy ขึ้นเซิร์ฟเวอร์ Linux — บังคับ LF ไม่งั้น systemd unit
+# กับสคริปต์จะพังเมื่อไฟล์ถูก checkout บน Windows แล้วคัดลอกขึ้นเครื่องปลายทาง
+* text=auto eol=lf

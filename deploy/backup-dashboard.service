@@ -1,0 +1,36 @@
+# systemd unit สำหรับ Linux — ดูขั้นตอนติดตั้งใน README.md หัวข้อ "ติดตั้งบนเซิร์ฟเวอร์"
+#
+#   sudo cp deploy/backup-dashboard.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now backup-dashboard
+#
+# ปรับ User= และพาธให้ตรงกับเครื่องจริงก่อนใช้
+
+[Unit]
+Description=Backup dashboard (read-only web view of backup_records)
+# รันบนเครื่องเดียวกับ Postgres — รอให้ DB ขึ้นก่อน หน้าเว็บจะได้ไม่ขึ้น error ตอนบูต
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=backup-dashboard
+WorkingDirectory=/opt/backup-dashboard
+ExecStart=/usr/bin/node /opt/backup-dashboard/server.mjs
+Restart=on-failure
+RestartSec=5
+
+# ค่า DATABASE_URL / HOST / PORT อ่านจาก /opt/backup-dashboard/.env โดยตัวแอปเอง
+# ถ้าอยากกำหนดจาก systemd แทน ใช้ Environment= ที่นี่ได้ (ค่าจาก systemd จะชนะ .env)
+
+# แอปแค่อ่านไฟล์ตัวเองกับต่อ Postgres — ปิดสิทธิ์ที่เหลือทั้งหมด
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
