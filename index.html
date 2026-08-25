@@ -171,6 +171,8 @@
   .pager button:disabled { opacity: .4; cursor: default; }
   .pager .gap { color: var(--muted); padding: 0 2px; }
   .pager .info { font-size: 12px; color: var(--muted); margin-left: 10px; font-variant-numeric: tabular-nums; }
+  .pager .jump { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); margin-left: 10px; }
+  .pager .jump input { width: 68px; padding: 5px 8px; text-align: center; font-variant-numeric: tabular-nums; }
 
   @media (max-width: 640px) {
     .topbar { padding: 12px 14px; }
@@ -310,6 +312,8 @@ const T = {
     last: '»',
     pageInfo: (page, total) => 'หน้า ' + page + ' จาก ' + total,
     goToPage: (n) => 'ไปหน้า ' + n,
+    jumpLabel: 'ไปหน้า',
+    jumpGo: 'ไป',
 
     col: {
       backed_up_at: 'วันเวลา', source: 'ระบบ / ข้อมูล', backup_type: 'ประเภท', status: 'สถานะ',
@@ -383,6 +387,8 @@ const T = {
     last: '»',
     pageInfo: (page, total) => 'Page ' + page + ' of ' + total,
     goToPage: (n) => 'Go to page ' + n,
+    jumpLabel: 'Go to page',
+    jumpGo: 'Go',
 
     col: {
       backed_up_at: 'When', source: 'Source', backup_type: 'Type', status: 'Status',
@@ -769,7 +775,14 @@ function renderPager(totalPages) {
     numbers.join('') +
     step(page + 1, t().next, page === totalPages) +
     step(totalPages, t().last, page === totalPages) +
-    `<span class="info">${esc(t().pageInfo(page, totalPages))}</span>`;
+    `<span class="info">${esc(t().pageInfo(page, totalPages))}</span>` +
+    // ปุ่มเลขหน้าแสดงแค่หน้ารอบๆ ตัว — ช่องนี้ไว้กระโดดไปหน้าไหนก็ได้โดยไม่ต้องกดทีละหน้า
+    `<span class="jump">
+       <label for="jumpPage">${esc(t().jumpLabel)}</label>
+       <input type="number" id="jumpPage" inputmode="numeric" min="1" max="${totalPages}"
+              placeholder="${page}" aria-label="${esc(t().jumpLabel)}">
+       <button data-jump>${esc(t().jumpGo)}</button>
+     </span>`;
 }
 
 function renderPageSizeOptions() {
@@ -892,13 +905,35 @@ document.getElementById('pageSize').addEventListener('change', (e) => {
   renderTable();
 });
 
+// ผู้ใช้อยู่ท้ายตารางตอนกดเปลี่ยนหน้า — เลื่อนกลับไปหัวตารางให้เห็นแถวแรกของหน้าใหม่
+function goToPage(n) {
+  state.page = n;
+  renderTable();
+  document.getElementById('thead').scrollIntoView({ block: 'nearest' });
+}
+
+// อ่านเลขจากช่องกระโดดหน้า แล้วบีบให้อยู่ในช่วงที่มีจริง
+// พิมพ์ 999 ทั้งที่มี 57 หน้า = ไปหน้าสุดท้าย ดีกว่าไม่เกิดอะไรขึ้นเลยแล้วผู้ใช้งง
+function jumpToTypedPage() {
+  const input = document.getElementById('jumpPage');
+  if (!input) return;
+  const wanted = Number(input.value);
+  if (!input.value.trim() || !Number.isFinite(wanted)) return;
+  goToPage(Math.min(Math.max(1, Math.round(wanted)), Number(input.max)));
+}
+
 document.getElementById('pager').addEventListener('click', (e) => {
+  if (e.target.closest('button[data-jump]')) return jumpToTypedPage();
   const target = e.target.closest('button[data-page]');
   if (!target || target.disabled) return;
-  state.page = Number(target.dataset.page);
-  renderTable();
-  // ผู้ใช้อยู่ท้ายตารางตอนกดเปลี่ยนหน้า — เลื่อนกลับไปหัวตารางให้เห็นแถวแรกของหน้าใหม่
-  document.getElementById('thead').scrollIntoView({ block: 'nearest' });
+  goToPage(Number(target.dataset.page));
+});
+
+document.getElementById('pager').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'jumpPage') {
+    e.preventDefault();
+    jumpToTypedPage();
+  }
 });
 
 document.getElementById('thead').addEventListener('click', (e) => {
